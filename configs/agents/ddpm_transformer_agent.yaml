@@ -15,6 +15,9 @@ model:
   device: ${device}
   diffusion_x: False
   diffusion_x_M: 10
+  sampler: ddpm
+  ddim_eta: 0.0
+  sampling_steps: null
 
   model:
     _target_: agents.models.diffusion.diffusion_models.DiffusionTransformerNetwork

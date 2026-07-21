@@ -92,6 +92,9 @@ def main():
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--models", nargs="+", choices=["bc", "ddpm"], default=["bc", "ddpm"])
     parser.add_argument("--ddpm-weights-dir", type=Path, default=Path("logs/avoiding/trained/ddpm_transformer_seed42"))
+    parser.add_argument("--ddpm-sampler", choices=["ddpm", "ddim"], default="ddpm")
+    parser.add_argument("--ddim-eta", type=float, default=0.0)
+    parser.add_argument("--ddim-steps", type=int, default=None)
     parser.add_argument("--output-dir", type=Path, default=Path("logs/avoiding/trajectory_comparison"))
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -110,6 +113,11 @@ def main():
     raw = {}
     for name, spec in specs.items():
         agent = make_agent(*spec)
+        if name == "DDPM-Transformer":
+            agent.model.sampler = args.ddpm_sampler
+            agent.model.ddim_eta = args.ddim_eta
+            if args.ddim_steps is not None:
+                agent.model.sampling_steps = args.ddim_steps
         trajectories, successes, modes = rollout(agent, args.n_trajectories, args.seed)
         results[name] = metrics(successes, modes)
         raw[name] = (trajectories, successes, modes)

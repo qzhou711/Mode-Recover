@@ -31,6 +31,9 @@ class Diffusion(nn.Module):
             device: str = 'cuda',
             diffusion_x: bool = False,
             diffusion_x_M: int = 32,
+            sampler: str = "ddpm",
+            ddim_eta: float = 0.0,
+            sampling_steps: Optional[int] = None,
     ) -> None:
         super().__init__()
         self.device = device
@@ -78,6 +81,15 @@ class Diffusion(nn.Module):
 
         self.diffusion_x = diffusion_x
         self.diffusion_x_M = diffusion_x_M
+        if sampler not in {"ddpm", "ddim"}:
+            raise ValueError(f"Unknown diffusion sampler: {sampler}")
+        if ddim_eta < 0:
+            raise ValueError("ddim_eta must be non-negative")
+        self.sampler = sampler
+        self.ddim_eta = ddim_eta
+        self.sampling_steps = sampling_steps or n_timesteps
+        if not 1 <= self.sampling_steps <= n_timesteps:
+            raise ValueError("sampling_steps must be between 1 and n_timesteps")
 
     def get_params(self):
         '''
@@ -159,6 +171,43 @@ class Diffusion(nn.Module):
         nonzero_mask = (1 - (t == 0).float()).reshape(b, *((1,) * (len(x.shape) - 1)))
         return model_mean + nonzero_mask * (0.5 * model_log_variance).exp() * noise
 
+    def ddim_sample(
+            self, x: torch.Tensor, t: torch.Tensor, s: torch.Tensor, g: torch.Tensor,
+            prev_t: Optional[int] = None,
+    ):
+        """Take one DDIM step using the model's epsilon prediction.
+
+        With ddim_eta=0 the reverse trajectory is deterministic conditional
+        on the initial noise. This keeps that noise as a latent mode identifier.
+        """
+        epsilon = self.model(x, t, s, g)
+        x_start = self.predict_start_from_noise(x, t=t, noise=epsilon)
+        x_start = x_start.clamp(self.min_action, self.max_action)
+
+        alpha_t = extract(self.alphas_cumprod, t, x.shape)
+        if prev_t is None:
+            prev_t_tensor = torch.clamp(t - 1, min=0)
+            alpha_prev = extract(self.alphas_cumprod, prev_t_tensor, x.shape)
+            is_final_step = (t == 0).reshape(t.shape[0], *((1,) * (x.ndim - 1)))
+            alpha_prev = torch.where(is_final_step, torch.ones_like(alpha_prev), alpha_prev)
+        elif prev_t < 0:
+            alpha_prev = torch.ones_like(alpha_t)
+        else:
+            prev_t_tensor = torch.full_like(t, prev_t)
+            alpha_prev = extract(self.alphas_cumprod, prev_t_tensor, x.shape)
+
+        sigma = self.ddim_eta * torch.sqrt(
+            torch.clamp(
+                (1.0 - alpha_prev) / (1.0 - alpha_t)
+                * (1.0 - alpha_t / alpha_prev),
+                min=0.0,
+            )
+        )
+        direction = torch.sqrt(torch.clamp(1.0 - alpha_prev - sigma.square(), min=0.0)) * epsilon
+        noise = torch.randn_like(x) if self.ddim_eta > 0 else torch.zeros_like(x)
+        x_prev = torch.sqrt(alpha_prev) * x_start + direction + sigma * noise
+        return x_prev.to(dtype=x.dtype)
+
     def p_sample_loop(self, state, goal, shape, verbose=False, return_diffusion=False):
         """
         Main loop for generating samples using the learned model and the inverse diffusion step
@@ -175,9 +224,20 @@ class Diffusion(nn.Module):
             diffusion = [x]
 
         # start the inverse diffusion process to generate the action conditioned on the noise
-        for i in reversed(range(0, self.n_timesteps)):
+        if self.sampler == "ddim":
+            schedule = np.linspace(
+                self.n_timesteps - 1, 0, self.sampling_steps, dtype=np.int64
+            ).tolist()
+        else:
+            schedule = list(reversed(range(0, self.n_timesteps)))
+
+        for step_index, i in enumerate(schedule):
             timesteps = torch.full((batch_size,), i, device=self.device, dtype=torch.long)
-            x = self.p_sample(x, timesteps, state, goal)
+            if self.sampler == "ddim":
+                prev_t = schedule[step_index + 1] if step_index + 1 < len(schedule) else -1
+                x = self.ddim_sample(x, timesteps, state, goal, prev_t=prev_t)
+            else:
+                x = self.p_sample(x, timesteps, state, goal)
             # if we want to return the complete chain add thee together
             if return_diffusion:
                 diffusion.append(x)
