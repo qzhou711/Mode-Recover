@@ -1,5 +1,6 @@
 import argparse
 import json
+import time
 from pathlib import Path
 
 import hydra
@@ -29,10 +30,11 @@ def make_agent(agent_config, window_size, weights_dir, weights_name):
     return agent
 
 
-def rollout(agent, n_trajectories, seed):
+def rollout(agent, n_trajectories, seed, progress_path=None, progress_every=10):
     env = ObstacleAvoidanceEnv(render=False)
     env.start()
     trajectories, successes, modes = [], [], []
+    start_time = time.monotonic()
     for episode in range(n_trajectories):
         np.random.seed(seed + episode)
         torch.manual_seed(seed + episode)
@@ -52,6 +54,20 @@ def rollout(agent, n_trajectories, seed):
         trajectories.append(np.asarray(path))
         modes.append(np.asarray(info[0], dtype=np.int8))
         successes.append(bool(info[1]))
+        completed = episode + 1
+        if completed % progress_every == 0 or completed == n_trajectories:
+            progress = {
+                "completed": completed,
+                "total": n_trajectories,
+                "successful_so_far": int(np.sum(successes)),
+                "elapsed_seconds": time.monotonic() - start_time,
+                "finished": completed == n_trajectories,
+            }
+            print(json.dumps({"rollout_progress": progress}), flush=True)
+            if progress_path is not None:
+                temporary_path = progress_path.with_suffix(".json.tmp")
+                temporary_path.write_text(json.dumps(progress, indent=2))
+                temporary_path.replace(progress_path)
     return trajectories, np.asarray(successes), np.asarray(modes)
 
 
@@ -89,6 +105,7 @@ def draw(ax, trajectories, successes, title):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--n-trajectories", type=int, default=30)
+    parser.add_argument("--progress-every", type=int, default=10)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--models", nargs="+", choices=["bc", "ddpm"], default=["bc", "ddpm"])
     parser.add_argument("--ddpm-weights-dir", type=Path, default=Path("logs/avoiding/trained/ddpm_transformer_seed42"))
@@ -118,7 +135,13 @@ def main():
             agent.model.ddim_eta = args.ddim_eta
             if args.ddim_steps is not None:
                 agent.model.sampling_steps = args.ddim_steps
-        trajectories, successes, modes = rollout(agent, args.n_trajectories, args.seed)
+        trajectories, successes, modes = rollout(
+            agent,
+            args.n_trajectories,
+            args.seed,
+            progress_path=args.output_dir / "progress.json",
+            progress_every=args.progress_every,
+        )
         results[name] = metrics(successes, modes)
         raw[name] = (trajectories, successes, modes)
         np.savez_compressed(

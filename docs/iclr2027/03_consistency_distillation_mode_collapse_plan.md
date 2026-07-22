@@ -41,11 +41,13 @@
 - [x] 完成 `8 → 4` 蒸馏，保存 student 与 EMA checkpoint。
 - [x] 完成无 diffusion/DSM loss 的 `8 → 4` 消融及 480-rollout 评估。
 - [x] 完成 `4 → 2` 蒸馏：DSM 权重 0.1 与 0 两组均完成 500 epochs 和 480-rollout 评估。
-- [ ] `2 → 1` 蒸馏正在按相同 DSM 对照配置运行。
+- [x] 完成简单 endpoint matching 的 `2 → 1` 蒸馏：DSM=0.1 与 DSM=0 两组均完成 500 epochs 和 480-rollout 评估。
+- [x] 完成严格 progressive DDIM target 与 CTM-style local consistency 两种单步方案，并完成 500/2,000 epochs 训练充分性对照。
+- [x] 完成使用原始 8-step checkpoint 初始化的 CTM-style 2,000-epoch 训练与 480-rollout 评估。
 
 ### 阶段 C：闭环与多模态评估
 
-- [ ] 对 teacher-8/DDPM、teacher-8/DDIM、student-4、student-2、student-1 使用相同协议评估（student-2 已完成）。
+- [x] 对 teacher-8/DDPM、teacher-8/DDIM、student-4、student-2 和已完成的 student-1 使用 seed 42、480-rollout 协议评估。
 - [ ] Student-4 已完成 seed 42、480 条 rollout；正式结果仍需扩展到至少 6 个 evaluation seeds。
 - [x] 统计成功率、24-mode coverage、归一化 mode entropy 和各 mode 频率。
 - [x] 计算 effective modes、与 teacher 分布的 JS divergence、每个 mode 的频率变化。
@@ -121,6 +123,31 @@ Consistency loss 负责压缩 teacher 的生成过程；diffusion loss 让 stude
 - [Progressive Distillation for Fast Sampling of Diffusion Models](https://openreview.net/forum?id=TIdIXIpzhoI)：将确定性 DDIM sampler 逐级从 N 步压缩到 N/2 步。
 - [Consistency Policy](https://arxiv.org/abs/2405.07503)：机器人策略中使用 `CTM loss + DSM loss`；论文也报告确定性 consistency trajectory 可能损失部分多模态性。
 - [One-Step Diffusion Policy](https://arxiv.org/abs/2410.21257)：通过 teacher score 做 distribution matching，蒸馏损失不直接要求专家动作。
+
+### 6.5 确定性 DDIM 轨迹蒸馏与随机 DDPM/分布蒸馏
+
+原始策略由 DDPM diffusion loss 训练，但当前实验蒸馏的是该网络的 deterministic DDIM（`eta=0`）推理过程。DDIM 是当前渐进式蒸馏的实现选择，而不是 DDPM 模型唯一可用的蒸馏方式。
+
+| 方面 | 确定性 DDIM 轨迹蒸馏 | 随机 DDPM / 分布蒸馏 |
+|---|---|---|
+| 学习目标 | 同一状态和初始噪声下拟合 teacher 的确定轨迹或最终动作 | 匹配 teacher 的完整动作分布、score 或 diffusion-chain KL |
+| Teacher 输出 | 给定条件与初始噪声后唯一，容易建立逐样本对应 | 每步包含随机噪声，不能直接把单条输出视为唯一标签 |
+| 常用方法 | Progressive distillation、consistency/trajectory matching | Score matching、distribution matching、KL matching、对抗式蒸馏 |
+| 实现与成本 | 实现简单、训练较稳定、额外计算较少 | 实现复杂，常需额外 score/teacher 网络或多次噪声评估 |
+| 主要优势 | 很适合把多步 sampler 压缩到 2–4 步 | 更直接约束整体分布，理论上更利于单步生成与多模态保持 |
+| 主要风险 | 点对点 MSE 和确定性路径可能压缩低频 mode；1-step 时误差骤增 | 训练成本高、优化可能不稳定，分布估计质量决定最终效果 |
+
+经典 [Progressive Distillation](https://openreview.net/forum?id=TIdIXIpzhoI) 将确定性 N-step DDIM sampler 逐级蒸馏成 N/2-step，因此确定性 DDIM/ODE 路径是少步 progressive distillation 的常见选择。机器人策略中，[Consistency Policy](https://arxiv.org/abs/2405.07503) 使用 consistency trajectory 与 DSM；追求高质量单步生成的 [One-Step Diffusion Policy](https://arxiv.org/abs/2410.21257) 和 [SDM Policy](https://arxiv.org/abs/2412.09265) 则进一步使用 KL、score 或 distribution matching。
+
+结合当前 Avoiding 数据，方法选择应按目标步数区分：
+
+```text
+8 → 4 → 2：确定性 DDIM 轨迹蒸馏已基本保持闭环成功率
+2 → 1：简单最终动作 MSE 发生性能崩溃，应改用严格 consistency target
+       或 score/distribution matching，而不是只延长当前训练
+```
+
+因此，2–4 step 加速阶段优先使用 DDIM/consistency 路线；如果目标是可靠的 1-step policy，应优先评估分布级蒸馏方案。
 
 ## 7. `8 → 4` 蒸馏设置与结果
 
@@ -251,31 +278,106 @@ DSM=0.1：略偏向成功率，但当前未改善模式覆盖或熵
 
 两条曲线都显示 8→4→2 阶段成功率缓慢下降，而 2→1 出现断崖式退化。DSM=0.1 在单步阶段仍保留少量成功轨迹和模式多样性，DSM=0 则完全失效；因此当前瓶颈首先是 one-step 任务能力崩溃，其次才是单独的 mode collapse。
 
-## 9. 下一步对照实验
+## 9. `2 → 1` 单步蒸馏实验
 
-1. 从原始数据直接训练原生 4-step diffusion，使用相同网络与训练预算。
-2. 对每组扩展多个 evaluation seeds，报告置信区间和聚合 mode distribution。
-3. 对 DSM 权重 `0`、`0.01`、`0.1` 做多 seed 消融，判断其对覆盖和 JS divergence 的真实影响。
-4. 完成正在运行的 `2 → 1` 蒸馏，检验单步策略是否使模式熵和覆盖进一步快速下降。
+### 9.1 方法与设置
 
-## 10. 实验产物
+近期依次评估了三类单步目标，所有正式结果均使用 seed 42 和 480 条闭环轨迹：
+
+| 方法 | 单步训练目标 | Teacher | DSM 权重 |
+|---|---|---|---:|
+| 简单 endpoint matching | 同一 state、初始噪声下，student 最终动作回归 teacher 最终动作 | 对应的 2-step student | 0 或 0.1 |
+| Strict progressive | 解析反演 teacher 两个 DDIM 子步对应的单步 epsilon target | 2-step DSM=0.1 student | 0.1 |
+| CTM-style local consistency | 在线 student 在 `x_t` 预测 clean action；EMA target 在相邻 teacher 状态 `x_s` 预测 clean action | 2-step DSM=0.1 student；另做原始 8-step checkpoint 初始化 | 0.1 |
+| Boundary-conditioned Consistency Policy | clean-action 边界参数化、多尺度 teacher jump、SNR weighting 与 pseudo-Huber consistency | 原始 8-step checkpoint | 0.1 |
+| DMD-style distribution/score | 用 teacher score 与可学习 fake-score 的差更新 one-step generator | 原始 8-step checkpoint | 0.1 |
+
+Strict progressive 和 CTM-style 实现在 `distill_one_step_avoiding.py`。这里的 CTM-style 是局部一致性近似，并非完整 Consistency Trajectory Model：当前网络没有显式目标时间 `s` 输入，也没有完整 CTM 的边界参数化与自适应损失加权。`--teacher-steps` 记录实验来源；CTM-style 内部仍在原始 8 个 diffusion 时间点上构造相邻 teacher transition。因此“2-step/8-step teacher”主要表示 teacher checkpoint 来源与参数，而不是把 CTM 内循环直接切成不同长度的 sampler。
+
+### 9.2 完整结果
+
+| 单步方法 | Epochs | 最佳 epoch | 最佳训练 loss | 成功率 | 成功模式 | 模式熵 |
+|---|---:|---:|---:|---:|---:|---:|
+| Endpoint，DSM=0.1 | 500 | — | — | 6.46%（31/480） | 10/24 | 0.619 |
+| Endpoint，DSM=0 | 500 | — | — | 0.00%（0/480） | 0/24 | 0.000 |
+| Strict progressive，2-step teacher | 500 | 448 | 0.003046 | 5.63%（27/480） | 7/24 | 0.589 |
+| CTM-style，2-step teacher | 500 | 452 | 0.014611 | 6.25%（30/480） | 8/24 | 0.587 |
+| Strict progressive，2-step teacher | 2,000 | 1,792 | 0.002757 | 5.63%（27/480） | 7/24 | 0.562 |
+| CTM-style，2-step teacher | 2,000 | 1,920 | 0.011123 | 6.25%（30/480） | 8/24 | 0.585 |
+| CTM-style，原始 8-step checkpoint | 2,000 | 1,920 | 0.011697 | **7.29%（35/480）** | 8/24 | 0.584 |
+| Boundary-conditioned Consistency Policy | 2,000 | 1,808 | 0.024199 | 7.50%（36/480） | 8/24 | 0.590 |
+| DMD-style distribution/score | 2,000 | 0 | 0.795332 | **17.08%（82/480）** | 2/24 | **0.072** |
+
+作为输入基线，2-step DSM=0.1 student 为 95.42%（458/480）、21/24 模式、熵 0.818；2-step DSM=0 student 为 94.79%（455/480）、23/24 模式、熵 0.844。因此性能崩溃明确发生在 `2 → 1`。新的 distribution/score 目标把单步成功率提高到 17.08%，但仍远低于 2-step，而且几乎把全部成功轨迹压缩到两个模式。
+
+500 epochs 增至 2,000 epochs 后，Strict progressive 仍为 27/480，CTM-style 仍为 30/480，模式覆盖也完全不变；训练 loss 虽继续下降，闭环性能没有改善，熵还略有下降。这基本排除了“当前两种实现只是训练轮数不足”的解释，继续堆训练 epochs 的优先级较低。
+
+Strict progressive 的 target loss 很低却没有转化为闭环成功，说明训练目标可拟合不等于单步闭环策略正确：微小动作误差会在早期闭环状态分布中放大。简单 endpoint 方法中 DSM=0 从少量成功直接降至 0，也说明原始数据去噪正则对单步模型仍重要，但 DSM=0.1 本身不足以解决单步分布匹配。
+
+### 9.3 轨迹与运行状态
+
+简单 endpoint DSM=0.1：
+
+![endpoint DSM=0.1 单步轨迹](../../logs/avoiding/distilled/ddim_student_1step_dsm01_480_rollouts/trajectory_comparison.png)
+
+Strict progressive（2,000 epochs）：
+
+![strict progressive 单步轨迹](../../logs/avoiding/distilled/ddim_student_1step_progressive_2000_480_rollouts/trajectory_comparison.png)
+
+CTM-style（2-step teacher，2,000 epochs）：
+
+![CTM-style 单步轨迹](../../logs/avoiding/distilled/ddim_student_1step_ctm_2000_480_rollouts/trajectory_comparison.png)
+
+原始 8-step checkpoint 的 CTM-style 训练与评估均已完成；最佳 checkpoint 位于 `logs/avoiding/distilled/ddim_student_1step_ctm_8teacher_2000_seed42/eval_best_ddpm.pth`。完整 480-rollout 结果为 35/480（7.29%）、8/24 模式、熵 0.584。轨迹图如下：
+
+![原始 8-step checkpoint 的 CTM-style 单步轨迹](../../logs/avoiding/distilled/ddim_student_1step_ctm_8teacher_2000_480_rollouts/trajectory_comparison.png)
+
+### 9.4 当前判断
+
+1. `8 → 4 → 2` 可保持约 95% 以上成功率，但目前的 `2 → 1` 目标全部发生灾难性闭环退化。
+2. 500→2,000 epochs 无收益，主要矛盾是目标/参数化/分布匹配，而不是训练不充分。
+3. 原始 8-step checkpoint 初始化将 CTM-style 从 30/480 提升到 35/480，仅增加 5 次成功；模式覆盖同为 8/24，熵从 0.585 微降至 0.584。它没有恢复 teacher 的能力，说明差异不只是 2-step teacher 累积误差。
+4. Boundary-conditioned Consistency Policy 为 36/480、8/24、熵 0.590，只比旧 CTM-style 多 1 次成功；边界包装、多尺度跳步和 loss weighting 没有解决闭环能力崩溃。
+5. DMD-style 分布目标把成功率提高到 82/480（17.08%），但只保留 2/24 模式，熵降到 0.072。这是“任务成功率改善、分布严重坍塌”的明确反例，不能视为可用的多模态策略。
+
+### 9.5 两种质量改进方案的实现与结论
+
+Boundary-conditioned Consistency Policy 使用以下组合：`f(x_t,t)=c_skip(t)x_t+(1-c_skip(t))x0_pred`、最多四个 diffusion index 的 teacher jump、SNR 权重、pseudo-Huber consistency、EMA target 和 `0.1 × DSM`。120-rollout 为 9/120（7.5%）、5/24 模式、熵 0.449；完整 480 后仍为 7.5%，覆盖回升到 8/24，说明小样本 coverage 波动明显，但成功率没有改善。
+
+![Boundary-conditioned Consistency Policy 的 480 条轨迹](../../logs/avoiding/distilled/consistency_policy_v2_2000_480_rollouts/trajectory_comparison.png)
+
+DMD-style 分支交替训练 fake-score 网络，并用归一化的 `teacher_epsilon - fake_epsilon` 更新 one-step generator，同时保留 DSM anchor。120-rollout 为 24/120（20%），但只有 1 个模式；完整 480 为 82/480（17.08%）、2/24 模式、熵 0.072，确认不是 120 条采样偶然漏掉少数模式，而是稳定的严重 mode collapse。
+
+![DMD-style distribution/score student 的 480 条轨迹](../../logs/avoiding/distilled/distribution_v2_2000_480_rollouts/trajectory_comparison.png)
+
+当前 DMD-style 是用于验证方向的原型，不等同于论文中完整稳定的 distribution matching 实现。尤其是训练 loss 规则选出的最佳 checkpoint 为 epoch 0，说明 `abs(distribution_loss)+0.1×DSM` 与闭环质量不一致；后续必须改为周期性闭环验证选 checkpoint，并重新设计 fake-score 更新比、score 时间权重和防坍塌正则。此次结果证明分布目标确实能改变成功率上限，但也证明当前实现会以牺牲多模态为代价。
+
+## 10. 下一步对照实验
+
+1. 为 DMD-style 加入周期性闭环小验证，按成功率与模式熵的联合指标选 checkpoint，不能继续使用当前 distribution loss 选模。
+2. 调整 fake-score/generator 更新比、score 时间权重，并加入 teacher mode-frequency matching 或 entropy regularization，直接抑制向单一高频路径坍塌。
+3. 将 Consistency Policy 扩展为显式目标时间 `s` 条件与严格 CTM 参数化，避免当前边界 wrapper 仍受原 epsilon 网络参数化限制。
+4. 对关键配置扩展多个 evaluation seeds，报告成功率置信区间和聚合 mode distribution。
+5. 从原始数据训练原生 one-step/few-step diffusion 强基线，区分蒸馏误差与低步数模型本身的能力上限。
+
+## 11. 实验产物
 
 - 蒸馏脚本：`distill_ddim_avoiding.py`
-- 训练日志：`logs/avoiding/distill_8to4_pipeline.log`
-- 最佳 student：`logs/avoiding/distilled/ddim_student_4step_seed42/eval_best_ddpm.pth`
-- 蒸馏指标：`logs/avoiding/distilled/ddim_student_4step_seed42/distillation_metrics.json`
-- 480-rollout 指标：`logs/avoiding/distilled/ddim_student_4step_480_rollouts/metrics.json`
-- 原始轨迹：`logs/avoiding/distilled/ddim_student_4step_480_rollouts/ddpm_transformer_trajectories.npz`
-- 轨迹图：`logs/avoiding/distilled/ddim_student_4step_480_rollouts/trajectory_comparison.png`
-- 8-step DDIM 指标：`logs/avoiding/ddim_teacher_8_seed42_480_rollouts/metrics.json`
-- 8-step DDIM 轨迹图：`logs/avoiding/ddim_teacher_8_seed42_480_rollouts/trajectory_comparison.png`
-- 无 DSM 最佳 student：`logs/avoiding/distilled/ddim_student_4step_nodsm_seed42/eval_best_ddpm.pth`
-- 无 DSM 蒸馏指标：`logs/avoiding/distilled/ddim_student_4step_nodsm_seed42/distillation_metrics.json`
-- 无 DSM 480-rollout 指标：`logs/avoiding/distilled/ddim_student_4step_nodsm_480_rollouts/metrics.json`
-- 无 DSM 轨迹图：`logs/avoiding/distilled/ddim_student_4step_nodsm_480_rollouts/trajectory_comparison.png`
-- 2-step DSM=0.1 最佳 student：`logs/avoiding/distilled/ddim_student_2step_dsm01_seed42/eval_best_ddpm.pth`
-- 2-step DSM=0.1 蒸馏日志：`logs/avoiding/distill_4to2_dsm01_pipeline.log`
-- 2-step DSM=0.1 指标与轨迹图：`logs/avoiding/distilled/ddim_student_2step_dsm01_480_rollouts/`
-- 2-step DSM=0 最佳 student：`logs/avoiding/distilled/ddim_student_2step_nodsm_seed42/eval_best_ddpm.pth`
-- 2-step DSM=0 蒸馏日志：`logs/avoiding/distill_4to2_nodsm_pipeline.log`
-- 2-step DSM=0 指标与轨迹图：`logs/avoiding/distilled/ddim_student_2step_nodsm_480_rollouts/`
+- 8→4 训练日志：`logs/avoiding/distill_8to4_pipeline.log`
+- 8-step DDIM 指标与轨迹：`logs/avoiding/ddim_teacher_8_seed42_480_rollouts/`
+- 4-step DSM=0.1 指标与轨迹：`logs/avoiding/distilled/ddim_student_4step_480_rollouts/`
+- 4-step DSM=0 指标与轨迹：`logs/avoiding/distilled/ddim_student_4step_nodsm_480_rollouts/`
+- 2-step DSM=0.1 指标与轨迹：`logs/avoiding/distilled/ddim_student_2step_dsm01_480_rollouts/`
+- 2-step DSM=0 指标与轨迹：`logs/avoiding/distilled/ddim_student_2step_nodsm_480_rollouts/`
+- 单步 endpoint DSM=0.1 指标与轨迹：`logs/avoiding/distilled/ddim_student_1step_dsm01_480_rollouts/`
+- 单步 endpoint DSM=0 指标与轨迹：`logs/avoiding/distilled/ddim_student_1step_nodsm_480_rollouts/`
+- Strict progressive 500/2,000-epoch 结果：`logs/avoiding/distilled/ddim_student_1step_progressive_480_rollouts/`、`logs/avoiding/distilled/ddim_student_1step_progressive_2000_480_rollouts/`
+- CTM-style 500/2,000-epoch 结果：`logs/avoiding/distilled/ddim_student_1step_ctm_480_rollouts/`、`logs/avoiding/distilled/ddim_student_1step_ctm_2000_480_rollouts/`
+- 原始 8-step checkpoint CTM-style 日志：`logs/avoiding/one_step_ctm_8teacher_2000_pipeline.log`
+- 原始 8-step checkpoint CTM-style 评估：`logs/avoiding/distilled/ddim_student_1step_ctm_8teacher_2000_480_rollouts/`
+- 单步蒸馏脚本：`distill_one_step_avoiding.py`
+- Rollout 精确进度实现：`visualize_avoiding.py`（`--progress-every` 与 `progress.json`）
+- Boundary-conditioned Consistency Policy 训练结果：`logs/avoiding/distilled/consistency_policy_v2_2000_seed42/`
+- Boundary-conditioned Consistency Policy 120/480 评估：`logs/avoiding/distilled/consistency_policy_v2_2000_120_rollouts/`、`logs/avoiding/distilled/consistency_policy_v2_2000_480_rollouts/`
+- DMD-style distribution/score 训练结果：`logs/avoiding/distilled/distribution_v2_2000_seed42/`
+- DMD-style distribution/score 120/480 评估：`logs/avoiding/distilled/distribution_v2_2000_120_rollouts/`、`logs/avoiding/distilled/distribution_v2_2000_480_rollouts/`
