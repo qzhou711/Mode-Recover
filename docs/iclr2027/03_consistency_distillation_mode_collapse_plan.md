@@ -241,6 +241,16 @@ DSM=0.1：略偏向成功率，但当前未改善模式覆盖或熵
 
 因此 2-step 阶段已经出现可测量的多模态压缩，但尚不是彻底的 mode collapse：成功率仍约 95%，且至少保留 21/24 模式。
 
+### 8.4 两条渐进蒸馏路径的指标曲线
+
+下图使用共同的 8-step deterministic DDIM teacher 作为起点，分别连接 DSM=0.1 与 DSM=0 的 `8 → 4 → 2 → 1` 结果。1-step 的最终结果为：DSM=0.1 成功率 6.46%、模式熵 0.619；DSM=0 成功率与模式熵均为 0。
+
+![两条蒸馏路径的成功率变化](assets/distillation_success_rate_vs_steps.png)
+
+![两条蒸馏路径的模式熵变化](assets/distillation_mode_entropy_vs_steps.png)
+
+两条曲线都显示 8→4→2 阶段成功率缓慢下降，而 2→1 出现断崖式退化。DSM=0.1 在单步阶段仍保留少量成功轨迹和模式多样性，DSM=0 则完全失效；因此当前瓶颈首先是 one-step 任务能力崩溃，其次才是单独的 mode collapse。
+
 ## 9. 下一步对照实验
 
 1. 从原始数据直接训练原生 4-step diffusion，使用相同网络与训练预算。
