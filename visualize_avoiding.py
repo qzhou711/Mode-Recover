@@ -14,17 +14,16 @@ from envs.gym_avoiding_env.gym_avoiding.envs.avoiding import ObstacleAvoidanceEn
 from envs.gym_avoiding_env.gym_avoiding.envs.objects.avoiding_objects import get_obj_xy_list
 
 
-def make_agent(agent_config, window_size, weights_dir, weights_name):
+def make_agent(agent_config, window_size, weights_dir, weights_name, extra_overrides=None):
+    overrides = [
+        f"agents={agent_config}",
+        f"window_size={window_size}",
+        "epoch=1",
+        "simulation.render=False",
+    ]
+    overrides.extend(extra_overrides or [])
     with initialize(config_path="configs"):
-        cfg = compose(
-            config_name="avoiding_config",
-            overrides=[
-                f"agents={agent_config}",
-                f"window_size={window_size}",
-                "epoch=1",
-                "simulation.render=False",
-            ],
-        )
+        cfg = compose(config_name="avoiding_config", overrides=overrides)
     agent = hydra.utils.instantiate(cfg.agents)
     agent.load_pretrained_model(str(weights_dir), sv_name=weights_name)
     return agent
@@ -107,11 +106,16 @@ def main():
     parser.add_argument("--n-trajectories", type=int, default=30)
     parser.add_argument("--progress-every", type=int, default=10)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--models", nargs="+", choices=["bc", "ddpm"], default=["bc", "ddpm"])
+    parser.add_argument("--models", nargs="+", choices=["bc", "ddpm", "flow"], default=["bc", "ddpm"])
     parser.add_argument("--ddpm-weights-dir", type=Path, default=Path("logs/avoiding/trained/ddpm_transformer_seed42"))
     parser.add_argument("--ddpm-sampler", choices=["ddpm", "ddim"], default="ddpm")
     parser.add_argument("--ddim-eta", type=float, default=0.0)
     parser.add_argument("--ddim-steps", type=int, default=None)
+    parser.add_argument("--flow-weights-dir", type=Path, default=Path("logs/avoiding/trained/flow_matching_transformer_seed42"))
+    parser.add_argument("--flow-steps", type=int, default=16)
+    parser.add_argument("--flow-layers", type=int, default=4)
+    parser.add_argument("--flow-embed-dim", type=int, default=72)
+    parser.add_argument("--flow-heads", type=int, default=4)
     parser.add_argument("--output-dir", type=Path, default=Path("logs/avoiding/trajectory_comparison"))
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -123,8 +127,17 @@ def main():
             "ddpm_transformer_agent", 5,
             args.ddpm_weights_dir, "eval_best_ddpm.pth",
         ),
+        "Flow-Matching": (
+            "flow_matching_transformer_agent", 5,
+            args.flow_weights_dir, "eval_best_flow.pth",
+            [
+                f"n_layer={args.flow_layers}",
+                f"n_embd={args.flow_embed_dim}",
+                f"n_head={args.flow_heads}",
+            ],
+        ),
     }
-    selected = {"bc": "BC", "ddpm": "DDPM-Transformer"}
+    selected = {"bc": "BC", "ddpm": "DDPM-Transformer", "flow": "Flow-Matching"}
     specs = {selected[key]: specs[selected[key]] for key in args.models}
     results = {}
     raw = {}
@@ -135,6 +148,8 @@ def main():
             agent.model.ddim_eta = args.ddim_eta
             if args.ddim_steps is not None:
                 agent.model.sampling_steps = args.ddim_steps
+        elif name == "Flow-Matching":
+            agent.model.solver_steps = args.flow_steps
         trajectories, successes, modes = rollout(
             agent,
             args.n_trajectories,
