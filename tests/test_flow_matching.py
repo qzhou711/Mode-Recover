@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 
+from agents.flow_matching_agent import FlowMatchingAgent
 from agents.models.flow_matching.flow_matching import FlowMatching
 from distill_flow_matching_avoiding import (
     conditional_pairwise_geometry,
@@ -89,3 +90,24 @@ def test_repeat_conditions_creates_contiguous_same_state_groups():
     assert torch.equal(repeated_state[:3], state[:1].expand(3, -1, -1))
     assert torch.equal(repeated_state[3:], state[1:2].expand(3, -1, -1))
     assert torch.equal(repeated_action[:3], action[:1].expand(3, -1, -1))
+
+
+def test_avoiding_state_perturbation_preserves_desired_position():
+    agent = object.__new__(FlowMatchingAgent)
+    agent.state_noise_std = 0.2
+    agent.state_noise_prob = 1.0
+    state = torch.zeros(8, 5, 4)
+    torch.manual_seed(7)
+    augmented = FlowMatchingAgent.augment_state(agent, state)
+    assert torch.equal(augmented[..., :2], state[..., :2])
+    assert not torch.equal(augmented[..., 2:4], state[..., 2:4])
+    offsets = augmented[..., 2:4] - state[..., 2:4]
+    assert torch.allclose(offsets, offsets[:, :1].expand_as(offsets))
+
+
+def test_disabled_state_perturbation_is_identity():
+    agent = object.__new__(FlowMatchingAgent)
+    agent.state_noise_std = 0.0
+    agent.state_noise_prob = 1.0
+    state = torch.randn(3, 5, 4)
+    assert FlowMatchingAgent.augment_state(agent, state) is state

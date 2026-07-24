@@ -173,6 +173,31 @@ C → D：跨规模蒸馏目标与 teacher–student gap
 - 若E同样接近0.147，则主要问题更可能是小模型承载1-step pointwise蒸馏映射的能力，而不是teacher规模。
 - E还应与未蒸馏Small-FM-1 solver的55.8% / 16 modes / 0.700熵比较，判断蒸馏带来的success–diversity交换。
 
+### 5.7 实验E：Small→Small同规模蒸馏结果
+
+- Teacher：Small-FM-16，37,982参数。
+- Student：同结构Small-FM，37,982参数。
+- 蒸馏：16→1，500 epochs。
+- 最优epoch：389。
+- 最优验证loss：0.0427。
+
+| 方法 | 成功数 | 成功率 | 成功模式 | 归一化模式熵 |
+|---|---:|---:|---:|---:|
+| Small-FM-16 | 319/480 | 66.5% | 24/24 | 0.942 |
+| Small-FM-1 solver | 268/480 | 55.8% | 16/24 | 0.700 |
+| Small→Small Distilled-1 | 287/480 | 59.8% | 23/24 | 0.885 |
+| Large→Small Distilled-1 | 387/480 | 80.6% | 12/24 | 0.147 |
+
+Small→Small蒸馏相对直接1-step solver，将成功率从55.8%提高到59.8%，模式从16恢复到23，熵从0.700恢复到0.885。它接近Small-FM-16的多样性，而没有出现Large→Small蒸馏中的严重模式集中。
+
+因此，teacher–student规模差距是当前mode collapse的重要因素。Large teacher提供了小student难以同时表达的高精度、多模式target；pointwise目标使student通过集中到少数高成功率模式获得80.6%成功率。Small teacher的目标复杂度与student容量匹配，蒸馏能保留23种模式，但成功率提升有限。
+
+当前最准确的结论是：
+
+> 在本任务和蒸馏实现下，跨规模Large→Small单步蒸馏产生明显success–diversity trade-off；同规模Small→Small蒸馏基本保留多模态，因此collapse不能归因于小模型或一步蒸馏本身，而与teacher–student capacity gap密切相关。
+
+轨迹图：`logs/avoiding/small_to_small_distill_500/eval480/trajectory_comparison.png`
+
 ## 6. 公平性与局限
 
 - “相同数据规模”指相同数据、batch size 和 epoch/update 数；小模型仍可拥有适合自身的优化超参数，但本轮先保持与大模型相同设置建立最直接基线。
