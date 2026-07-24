@@ -1,0 +1,32 @@
+{
+  "method": "consistency_policy",
+  "teacher_steps": 8,
+  "student_steps": 1,
+  "epochs": 2,
+  "best_epoch": 1,
+  "best_loss": 0.04644241024903656,
+  "diffusion_weight": 0.1,
+  "consistency_weight": 1.0,
+  "ema_decay": 0.995,
+  "sigma_data": 0.5,
+  "huber_delta": 0.03,
+  "max_teacher_jump": 4,
+  "distribution_weight": 0.1,
+  "teacher_checkpoint": "logs/avoiding/trained/ddpm_transformer_10000_cosine_seed42/eval_best_ddpm.pth",
+  "history": [
+    {
+      "epoch": 0,
+      "loss": 0.12031542610285795,
+      "consistency_policy_loss": 0.11349725963456547,
+      "diffusion_loss": 0.06818166375160217,
+      "learning_rate": 5.05e-05
+    },
+    {
+      "epoch": 1,
+      "loss": 0.04644241024903656,
+      "consistency_policy_loss": 0.042312234446179875,
+      "diffusion_loss": 0.04130175709724426,
+      "learning_rate": 1e-06
+    }
+  ]
+}

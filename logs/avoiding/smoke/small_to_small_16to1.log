@@ -1,0 +1,27 @@
+/jet/home/qzhou7/workspace/anaconda3/envs/d3il/lib/python3.10/site-packages/hydra/_internal/defaults_list.py:251: UserWarning: In 'avoiding_config': Defaults list is missing `_self_`. See https://hydra.cc/docs/upgrades/1.0_to_1.1/default_composition_order for more information
+  warnings.warn(msg, UserWarning)
+FM shortcut 16-to-1:   0%|          | 0/2 [00:00<?, ?it/s]{"epoch": 0, "loss": 0.1432984620332718, "shortcut_loss": 0.11949839442968369, "flow_loss": 0.23800073564052582, "geometry_loss": 0.02415807731449604, "validation_loss": 0.11089874804019928, "learning_rate": 5.05e-05}
+FM shortcut 16-to-1:  50%|█████     | 1/2 [00:01<00:01,  1.69s/it]{"epoch": 1, "loss": 0.14339764416217804, "shortcut_loss": 0.11275877803564072, "flow_loss": 0.30638861656188965, "geometry_loss": 0.018332919105887413, "validation_loss": 0.10807449370622635, "learning_rate": 1e-06}
+FM shortcut 16-to-1: 100%|██████████| 2/2 [00:01<00:00,  1.17it/s]FM shortcut 16-to-1: 100%|██████████| 2/2 [00:01<00:00,  1.02it/s]
+{
+  "teacher_checkpoint": "logs/avoiding/trained/flow_matching_small16_5000_seed42/eval_best_flow.pth",
+  "teacher_steps": 16,
+  "teacher_architecture": {
+    "layers": 2,
+    "embed_dim": 36,
+    "heads": 3
+  },
+  "student_steps": 1,
+  "epochs": 2,
+  "best_epoch": 1,
+  "best_loss": 0.10807449370622635,
+  "flow_weight": 0.1,
+  "geometry_weight": 0.0,
+  "conditional_samples": 1,
+  "student_architecture": {
+    "layers": 4,
+    "embed_dim": 72,
+    "heads": 4
+  },
+  "student_parameters": 37982
+}

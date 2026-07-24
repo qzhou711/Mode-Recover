@@ -1,0 +1,16 @@
+/jet/home/qzhou7/workspace/anaconda3/envs/d3il/lib/python3.10/site-packages/hydra/_internal/defaults_list.py:251: UserWarning: In 'avoiding_config': Defaults list is missing `_self_`. See https://hydra.cc/docs/upgrades/1.0_to_1.1/default_composition_order for more information
+  warnings.warn(msg, UserWarning)
+strict progressive DDIM 2-to-1:   0%|          | 0/1 [00:00<?, ?it/s]{"epoch": 0, "loss": 0.04794185608625412, "progressive_loss": 0.04067297652363777, "diffusion_loss": 0.07268878072500229, "learning_rate": 1e-06}
+strict progressive DDIM 2-to-1: 100%|██████████| 1/1 [00:01<00:00,  1.78s/it]strict progressive DDIM 2-to-1: 100%|██████████| 1/1 [00:01<00:00,  1.79s/it]
+{
+  "method": "progressive",
+  "teacher_steps": 2,
+  "student_steps": 1,
+  "epochs": 1,
+  "best_epoch": 0,
+  "best_loss": 0.04794185608625412,
+  "diffusion_weight": 0.1,
+  "consistency_weight": 1.0,
+  "ema_decay": 0.995,
+  "teacher_checkpoint": "logs/avoiding/distilled/ddim_student_2step_dsm01_seed42/eval_best_ddpm.pth"
+}

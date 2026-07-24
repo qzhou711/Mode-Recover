@@ -1,0 +1,35 @@
+pybullet build time: Jan 29 2025 23:16:28
+/jet/home/qzhou7/workspace/anaconda3/envs/d3il/lib/python3.10/site-packages/hydra/_internal/defaults_list.py:251: UserWarning: In 'avoiding_config': Defaults list is missing `_self_`. See https://hydra.cc/docs/upgrades/1.0_to_1.1/default_composition_order for more information
+  warnings.warn(msg, UserWarning)
+Final IK error (78 iterations):  7.2858622740627195e-06
+Final IK error (0 iterations):  7.2858622740627195e-06
+Traceback (most recent call last):
+  File "/ocean/projects/ccr200024p/qzhou7/projects/d3il/visualize_avoiding.py", line 143, in <module>
+    main()
+  File "/ocean/projects/ccr200024p/qzhou7/projects/d3il/visualize_avoiding.py", line 118, in main
+    trajectories, successes, modes = rollout(agent, args.n_trajectories, args.seed)
+  File "/ocean/projects/ccr200024p/qzhou7/projects/d3il/visualize_avoiding.py", line 48, in rollout
+    pred_action = agent.predict(policy_obs)[0] + policy_obs[:2]
+  File "/jet/home/qzhou7/workspace/anaconda3/envs/d3il/lib/python3.10/site-packages/torch/autograd/grad_mode.py", line 27, in decorate_context
+    return func(*args, **kwargs)
+  File "/ocean/projects/ccr200024p/qzhou7/projects/d3il/agents/ddpm_agent.py", line 270, in predict
+    model_pred = self.model(input_state, goal)
+  File "/jet/home/qzhou7/workspace/anaconda3/envs/d3il/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1190, in _call_impl
+    return forward_call(*input, **kwargs)
+  File "/ocean/projects/ccr200024p/qzhou7/projects/d3il/agents/models/diffusion/gc_diffusion.py", line 380, in forward
+    return self.sample(state, goal, *args, **kwargs)
+  File "/ocean/projects/ccr200024p/qzhou7/projects/d3il/agents/models/diffusion/gc_diffusion.py", line 253, in sample
+    action = self.p_sample_loop(state, goal, shape, *args, **kwargs)
+  File "/ocean/projects/ccr200024p/qzhou7/projects/d3il/agents/models/diffusion/gc_diffusion.py", line 216, in p_sample_loop
+    x = self.ddim_sample(x, timesteps, state, goal)
+  File "/ocean/projects/ccr200024p/qzhou7/projects/d3il/agents/models/diffusion/gc_diffusion.py", line 176, in ddim_sample
+    epsilon = self.model(x, t, s, g)
+  File "/jet/home/qzhou7/workspace/anaconda3/envs/d3il/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1190, in _call_impl
+    return forward_call(*input, **kwargs)
+  File "/ocean/projects/ccr200024p/qzhou7/projects/d3il/agents/models/diffusion/diffusion_models.py", line 616, in forward
+    action_embed = self.action_emb(actions)
+  File "/jet/home/qzhou7/workspace/anaconda3/envs/d3il/lib/python3.10/site-packages/torch/nn/modules/module.py", line 1190, in _call_impl
+    return forward_call(*input, **kwargs)
+  File "/jet/home/qzhou7/workspace/anaconda3/envs/d3il/lib/python3.10/site-packages/torch/nn/modules/linear.py", line 114, in forward
+    return F.linear(input, self.weight, self.bias)
+RuntimeError: mat1 and mat2 must have the same dtype

@@ -29,12 +29,13 @@ def make_agent(agent_config, window_size, weights_dir, weights_name, extra_overr
     return agent
 
 
-def rollout(agent, n_trajectories, seed, progress_path=None, progress_every=10):
+def rollout(agent, n_trajectories, seed, episode_start=0, progress_path=None, progress_every=10):
     env = ObstacleAvoidanceEnv(render=False)
     env.start()
     trajectories, successes, modes = [], [], []
     start_time = time.monotonic()
-    for episode in range(n_trajectories):
+    for local_episode in range(n_trajectories):
+        episode = episode_start + local_episode
         np.random.seed(seed + episode)
         torch.manual_seed(seed + episode)
         agent.reset()
@@ -53,7 +54,7 @@ def rollout(agent, n_trajectories, seed, progress_path=None, progress_every=10):
         trajectories.append(np.asarray(path))
         modes.append(np.asarray(info[0], dtype=np.int8))
         successes.append(bool(info[1]))
-        completed = episode + 1
+        completed = local_episode + 1
         if completed % progress_every == 0 or completed == n_trajectories:
             progress = {
                 "completed": completed,
@@ -67,6 +68,16 @@ def rollout(agent, n_trajectories, seed, progress_path=None, progress_every=10):
                 temporary_path = progress_path.with_suffix(".json.tmp")
                 temporary_path.write_text(json.dumps(progress, indent=2))
                 temporary_path.replace(progress_path)
+                checkpoint_path = progress_path.with_name("rollout_checkpoint.npz")
+                temporary_checkpoint = checkpoint_path.with_suffix(".npz.tmp")
+                with temporary_checkpoint.open("wb") as checkpoint_file:
+                    np.savez_compressed(
+                        checkpoint_file,
+                        trajectories=np.asarray(trajectories, dtype=object),
+                        successes=np.asarray(successes),
+                        modes=np.asarray(modes, dtype=object),
+                    )
+                temporary_checkpoint.replace(checkpoint_path)
     return trajectories, np.asarray(successes), np.asarray(modes)
 
 
@@ -104,6 +115,7 @@ def draw(ax, trajectories, successes, title):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--n-trajectories", type=int, default=30)
+    parser.add_argument("--episode-start", type=int, default=0)
     parser.add_argument("--progress-every", type=int, default=10)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--models", nargs="+", choices=["bc", "ddpm", "flow"], default=["bc", "ddpm"])
@@ -154,6 +166,7 @@ def main():
             agent,
             args.n_trajectories,
             args.seed,
+            episode_start=args.episode_start,
             progress_path=args.output_dir / "progress.json",
             progress_every=args.progress_every,
         )
