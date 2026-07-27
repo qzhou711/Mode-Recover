@@ -41,8 +41,11 @@ def make_agent(
     return agent
 
 
-def make_student(agent, solver_steps, layers, embed_dim, heads):
-    if layers == 0 and embed_dim == 0 and heads == 0:
+def make_student(agent, solver_steps, layers, embed_dim, heads, initialization="auto"):
+    use_teacher_init = initialization == "teacher" or (
+        initialization == "auto" and layers == 0 and embed_dim == 0 and heads == 0
+    )
+    if use_teacher_init:
         student = copy.deepcopy(agent.model)
     else:
         layers = layers or 4
@@ -144,14 +147,55 @@ def main():
     parser.add_argument("--student-layers", type=int, default=0)
     parser.add_argument("--student-embed-dim", type=int, default=0)
     parser.add_argument("--student-heads", type=int, default=0)
+    parser.add_argument(
+        "--student-init",
+        choices=["auto", "teacher", "random", "checkpoint"],
+        default="auto",
+        help="Student initialization. Teacher initialization requires matching architectures.",
+    )
+    parser.add_argument(
+        "--student-init-dir",
+        type=Path,
+        default=None,
+        help="Directory containing eval_best_flow.pth for checkpoint initialization.",
+    )
     parser.add_argument("--ema-decay", type=float, default=0.995)
     parser.add_argument("--max-batches-per-epoch", type=int, default=0)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--save-epochs",
+        type=int,
+        nargs="*",
+        default=[],
+        help="One-based epochs whose EMA weights are saved under checkpoints/epoch_NNNN.",
+    )
     args = parser.parse_args()
     if args.student_steps < 1 or args.student_steps >= args.teacher_steps:
         raise ValueError("student_steps must be in [1, teacher_steps)")
     if args.conditional_samples < 1:
         raise ValueError("conditional_samples must be positive")
+    if any(epoch < 1 or epoch > args.epochs for epoch in args.save_epochs):
+        raise ValueError("save epochs must be in [1, epochs]")
+    if args.student_init == "teacher":
+        requested_architecture = (
+            args.student_layers or args.teacher_layers,
+            args.student_embed_dim or args.teacher_embed_dim,
+            args.student_heads or args.teacher_heads,
+        )
+        teacher_architecture = (
+            args.teacher_layers,
+            args.teacher_embed_dim,
+            args.teacher_heads,
+        )
+        if requested_architecture != teacher_architecture:
+            raise ValueError(
+                "teacher initialization requires identical teacher/student architectures"
+            )
+    if args.student_init == "checkpoint" and args.student_init_dir is None:
+        raise ValueError("checkpoint initialization requires --student-init-dir")
+    if args.student_init != "checkpoint" and args.student_init_dir is not None:
+        raise ValueError("--student-init-dir is only valid with checkpoint initialization")
+    save_epochs = set(args.save_epochs)
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -165,10 +209,42 @@ def main():
     for parameter in teacher.parameters():
         parameter.requires_grad_(False)
     student = make_student(
-        agent, args.student_steps, args.student_layers, args.student_embed_dim, args.student_heads
+        agent,
+        args.student_steps,
+        args.student_layers,
+        args.student_embed_dim,
+        args.student_heads,
+        args.student_init,
     ).to(agent.device).train()
+    initialization_checkpoint = None
+    if args.student_init == "checkpoint":
+        initialization_checkpoint = args.student_init_dir / "eval_best_flow.pth"
+        initialization_state = torch.load(
+            initialization_checkpoint, map_location=agent.device
+        )
+        student.load_state_dict(initialization_state, strict=True)
+        loaded_state = student.state_dict()
+        if loaded_state.keys() != initialization_state.keys():
+            raise RuntimeError("student checkpoint keys changed after strict loading")
+        if not all(
+            torch.equal(loaded_state[key], initialization_state[key])
+            for key in loaded_state
+        ):
+            raise RuntimeError("student does not exactly match initialization checkpoint")
     for parameter in student.parameters():
         parameter.requires_grad_(True)
+    initialization_max_abs_diff = None
+    if args.student_init == "teacher":
+        initialization_max_abs_diff = max(
+            float((student_parameter - teacher_parameter).abs().max().item())
+            for student_parameter, teacher_parameter in zip(
+                student.get_params(), teacher.get_params()
+            )
+        )
+        if initialization_max_abs_diff != 0.0:
+            raise RuntimeError("teacher-initialized student does not exactly match teacher")
+    elif args.student_init == "checkpoint":
+        initialization_max_abs_diff = 0.0
 
     optimizer = torch.optim.Adam(student.get_params(), lr=args.learning_rate)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs, eta_min=1e-6)
@@ -277,6 +353,11 @@ def main():
         if record["validation_loss"] < best_loss:
             best_loss, best_epoch = record["validation_loss"], epoch
             save_ema(student, ema, args.output_dir / "eval_best_flow.pth")
+        completed_epoch = epoch + 1
+        if completed_epoch in save_epochs:
+            checkpoint_dir = args.output_dir / "checkpoints" / f"epoch_{completed_epoch:04d}"
+            checkpoint_dir.mkdir(parents=True, exist_ok=True)
+            save_ema(student, ema, checkpoint_dir / "eval_best_flow.pth")
         if epoch % 10 == 0 or epoch + 1 == args.epochs:
             print(json.dumps(record), flush=True)
     save_ema(student, ema, args.output_dir / "last_flow.pth")
@@ -289,7 +370,13 @@ def main():
             "heads": args.teacher_heads,
         },
         "student_steps": args.student_steps,
+        "student_initialization": args.student_init,
+        "student_initialization_checkpoint": (
+            str(initialization_checkpoint) if initialization_checkpoint else None
+        ),
+        "initialization_max_abs_diff": initialization_max_abs_diff,
         "epochs": args.epochs,
+        "saved_epochs": sorted(save_epochs),
         "best_epoch": best_epoch,
         "best_loss": best_loss,
         "flow_weight": args.flow_weight,

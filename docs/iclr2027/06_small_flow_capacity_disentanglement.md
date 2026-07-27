@@ -1,5 +1,7 @@
 # Small-FM-16：模型容量、求解步数与蒸馏退化的解耦实验
 
+> **后续纠正（2026-07-26）**：`2×36→2×36`使用Teacher-init，`4×72→2×36`使用Random-init，因此本文关于teacher–student capacity gap的强因果结论不成立。数值仍有效，必须按初始化重新解释。最新结论见`11_flow_initialization_correction.md`。
+
 ## 1. 背景
 
 当前 Flow Matching 结果形成了两条明显不同的现象：
@@ -55,10 +57,10 @@ Shortcut MSE 能评价每个训练样本是否接近 teacher target，但不直�
 
 | 实验 | 参数量 | 推理步数 | 训练方式 | 解答的问题 |
 |---|---:|---:|---|---|
-| A. Large-FM-16 | 274,826 | 16 | 原始数据完整 CFM 训练 | 大模型基准 |
-| B. Small-FM-16 | 37,982 | 16 | 原始数据完整 CFM 训练 | 小模型自身容量是否足够 |
-| C. Small-FM-1 solver | 37,982 | 1 | 使用 B checkpoint 直接一步求解 | 小模型内部的降步损失 |
-| D. Small-Distilled-1 | 37,982 | 1 | 从 Large-FM-16 蒸馏 | 跨规模蒸馏的额外影响 |
+| A. `FM-4x72-16-Full` | 274,826 | 16 | 原始数据完整 CFM 训练 | 大模型基准 |
+| B. `FM-2x36-16-Full` | 37,982 | 16 | 原始数据完整 CFM 训练 | 小模型自身容量是否足够 |
+| C. `FM-2x36-1-Solver` | 37,982 | 1 | 使用 B checkpoint 直接一步求解 | 小模型内部的降步损失 |
+| D. `FM-2x36-1-Distill-4x72` | 37,982 | 1 | 从 `FM-4x72-16-Full` 蒸馏 | 跨规模蒸馏的额外影响 |
 
 差异可解释为：
 
@@ -99,11 +101,11 @@ C → D：跨规模蒸馏目标与 teacher–student gap
 
 | 实验 | 参数量 | 步数 | 成功数 | 成功率 | 成功模式 | 归一化模式熵 |
 |---|---:|---:|---:|---:|---:|---:|
-| A. Large-FM-16 | 274,826 | 16 | 460/480 | 95.8% | 24/24 | 0.945 |
-| B. Small-FM-16 | 37,982 | 16 | 319/480 | 66.5% | 24/24 | 0.942 |
-| C. Small-FM-1 solver | 37,982 | 1 | 268/480 | 55.8% | 16/24 | 0.700 |
-| D. Small-Distilled-1，500 ep | 37,982 | 1 | 387/480 | 80.6% | 12/24 | 0.147 |
-| Same-size Distilled-1参考 | 274,826 | 1 | 467/480 | 97.3% | 24/24 | 0.895 |
+| A. `FM-4x72-16-Full` | 274,826 | 16 | 460/480 | 95.8% | 24/24 | 0.945 |
+| B. `FM-2x36-16-Full` | 37,982 | 16 | 319/480 | 66.5% | 24/24 | 0.942 |
+| C. `FM-2x36-1-Solver` | 37,982 | 1 | 268/480 | 55.8% | 16/24 | 0.700 |
+| D. `FM-2x36-1-Distill-4x72`，500 ep | 37,982 | 1 | 387/480 | 80.6% | 12/24 | 0.147 |
+| `FM-4x72-1-Distill-4x72`参考 | 274,826 | 1 | 467/480 | 97.3% | 24/24 | 0.895 |
 
 轨迹图：
 
@@ -141,7 +143,7 @@ C → D：跨规模蒸馏目标与 teacher–student gap
 
 ### 5.4 与同规模蒸馏对比
 
-大模型同规模16→1蒸馏仍有24/24模式和0.895熵，说明1-step蒸馏本身并不必然collapse。显著塌缩只出现在小student的跨规模蒸馏中，支持teacher–student capacity gap与目标压缩共同作用的解释。
+大模型同规模16→1 Teacher-init蒸馏仍有24/24模式和0.895熵，说明1-step蒸馏本身并不必然collapse。跨规模实验同时改变结构并采用Random-init，因此不能再将退化直接归因于teacher–student capacity gap。
 
 ### 5.5 最终解耦结论
 
@@ -165,11 +167,11 @@ C → D：跨规模蒸馏目标与 teacher–student gap
 
 | 实验 | Teacher | Student | 步数 | 目的 |
 |---|---|---|---:|---|
-| E. Small→Small Distilled-1 | Small-FM-16 | 同结构Small-FM | 1 | 隔离teacher–student规模差距 |
+| E. `FM-2x36-1-Distill-2x36` | `FM-2x36-16-Full` | 同结构`FM-2x36` | 1 | 隔离teacher–student规模差距 |
 
 判断标准：
 
-- 若E的熵明显高于Large→Small的0.147，则capacity gap是跨规模蒸馏collapse的重要来源。
+- **后续纠正**：E使用Teacher-init而Large→Small使用Random-init，因此熵差异同时包含初始化效应，不能用于单独证明capacity gap。
 - 若E同样接近0.147，则主要问题更可能是小模型承载1-step pointwise蒸馏映射的能力，而不是teacher规模。
 - E还应与未蒸馏Small-FM-1 solver的55.8% / 16 modes / 0.700熵比较，判断蒸馏带来的success–diversity交换。
 
@@ -183,10 +185,10 @@ C → D：跨规模蒸馏目标与 teacher–student gap
 
 | 方法 | 成功数 | 成功率 | 成功模式 | 归一化模式熵 |
 |---|---:|---:|---:|---:|
-| Small-FM-16 | 319/480 | 66.5% | 24/24 | 0.942 |
-| Small-FM-1 solver | 268/480 | 55.8% | 16/24 | 0.700 |
-| Small→Small Distilled-1 | 287/480 | 59.8% | 23/24 | 0.885 |
-| Large→Small Distilled-1 | 387/480 | 80.6% | 12/24 | 0.147 |
+| `FM-2x36-16-Full` | 319/480 | 66.5% | 24/24 | 0.942 |
+| `FM-2x36-1-Solver` | 268/480 | 55.8% | 16/24 | 0.700 |
+| `FM-2x36-1-Distill-2x36` | 287/480 | 59.8% | 23/24 | 0.885 |
+| `FM-2x36-1-Distill-4x72` | 387/480 | 80.6% | 12/24 | 0.147 |
 
 Small→Small蒸馏相对直接1-step solver，将成功率从55.8%提高到59.8%，模式从16恢复到23，熵从0.700恢复到0.885。它接近Small-FM-16的多样性，而没有出现Large→Small蒸馏中的严重模式集中。
 
@@ -194,7 +196,7 @@ Small→Small蒸馏相对直接1-step solver，将成功率从55.8%提高到59.8
 
 当前最准确的结论是：
 
-> 在本任务和蒸馏实现下，跨规模Large→Small单步蒸馏产生明显success–diversity trade-off；同规模Small→Small蒸馏基本保留多模态，因此collapse不能归因于小模型或一步蒸馏本身，而与teacher–student capacity gap密切相关。
+> **后续纠正**：跨规模Random-init蒸馏产生明显success–diversity trade-off，而同规模Teacher-init蒸馏保留多模态。该对照首先证明初始化与结构迁移组合的重要性，不能隔离teacher–student capacity gap。
 
 轨迹图：`logs/avoiding/small_to_small_distill_500/eval480/trajectory_comparison.png`
 
