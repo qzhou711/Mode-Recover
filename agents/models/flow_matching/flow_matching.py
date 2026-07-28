@@ -41,6 +41,27 @@ class FlowMatching(nn.Module):
     def velocity(self, x_t, t, state, goal=None):
         return self.model(x_t, t * self.time_scale, state, goal)
 
+    def transition(self, x_t, start_time, stop_time, state, goal=None):
+        """One-call CTM transition from start_time to stop_time."""
+        shape = (start_time.shape[0],) + (1,) * (x_t.ndim - 1)
+        velocity = self.model(
+            x_t, start_time * self.time_scale, state, goal,
+            stop_time=stop_time * self.time_scale,
+        )
+        return x_t + (stop_time - start_time).reshape(shape) * velocity
+
+    def boundary_transition(self, x_t, start_time, stop_time, state, goal=None):
+        """Boundary-preconditioned Flow-CTM transition."""
+        shape = (start_time.shape[0],) + (1,) * (x_t.ndim - 1)
+        velocity = self.model(
+            x_t, start_time * self.time_scale, state, goal,
+            stop_time=stop_time * self.time_scale,
+        )
+        endpoint = x_t + (1.0 - start_time).reshape(shape) * velocity
+        ratio = ((1.0 - stop_time) / (1.0 - start_time).clamp_min(1e-6))
+        ratio = ratio.reshape(shape)
+        return ratio * x_t + (1.0 - ratio) * endpoint
+
     def loss(self, action, state, goal=None):
         noise = torch.randn_like(action)
         t = torch.rand(action.shape[0], device=action.device, dtype=action.dtype)

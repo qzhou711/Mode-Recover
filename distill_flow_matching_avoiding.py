@@ -109,6 +109,88 @@ def repeat_conditions(state, action, samples_per_state):
     return state, action
 
 
+
+def conditional_centered_gram(student_endpoint, teacher_endpoint, samples_per_state):
+    """Match same-state noise-to-endpoint geometry without cross-state leakage."""
+    if samples_per_state <= 1:
+        return student_endpoint.sum() * 0.0
+    if student_endpoint.shape[0] % samples_per_state:
+        raise ValueError("batch size must be divisible by conditional samples")
+    n_states = student_endpoint.shape[0] // samples_per_state
+    student = student_endpoint.flatten(1).reshape(n_states, samples_per_state, -1)
+    teacher = teacher_endpoint.flatten(1).reshape(n_states, samples_per_state, -1)
+    student = student - student.mean(dim=1, keepdim=True)
+    teacher = teacher - teacher.mean(dim=1, keepdim=True)
+    feature_dim = student.shape[-1]
+    student_gram = student @ student.transpose(1, 2) / feature_dim
+    teacher_gram = teacher @ teacher.transpose(1, 2) / feature_dim
+    return F.smooth_l1_loss(student_gram, teacher_gram)
+
+
+def structured_teacher_state_dict(teacher_state, student_state):
+    """Deterministically slice a 4x72 teacher into a 2x36 student."""
+    embed_index = torch.tensor(
+        [index for head in range(3) for index in range(head * 18, head * 18 + 12)]
+    )
+    mlp_index = torch.cat([embed_index + offset for offset in (0, 72, 144, 216)])
+    time_index = torch.cat([embed_index, embed_index + 72])
+    block_map = {0: 0, 1: 3}
+    mapped = {}
+
+    for student_key, student_tensor in student_state.items():
+        teacher_key = student_key
+        if ".blocks." in student_key:
+            prefix, remainder = student_key.split(".blocks.", 1)
+            student_block, suffix = remainder.split(".", 1)
+            teacher_key = f"{prefix}.blocks.{block_map[int(student_block)]}.{suffix}"
+        source = teacher_state[teacher_key]
+        embed_index_device = embed_index.to(source.device)
+        mlp_index_device = mlp_index.to(source.device)
+        time_index_device = time_index.to(source.device)
+
+        if source.shape == student_tensor.shape:
+            value = source
+        elif student_key.endswith("pos_emb"):
+            value = source.index_select(2, embed_index_device)
+        elif source.ndim == 1:
+            index = (
+                mlp_index_device if source.shape[0] == 288
+                else time_index_device if source.shape[0] == 144
+                else embed_index_device
+            )
+            value = source.index_select(0, index)
+        elif source.ndim == 2:
+            row_index = None
+            column_index = None
+            if source.shape[0] == 288:
+                row_index = mlp_index_device
+            elif source.shape[0] == 144:
+                row_index = time_index_device
+            elif source.shape[0] == 72 and student_tensor.shape[0] == 36:
+                row_index = embed_index_device
+            if source.shape[1] == 288:
+                column_index = mlp_index_device
+            elif source.shape[1] == 144:
+                column_index = time_index_device
+            elif source.shape[1] == 72 and student_tensor.shape[1] == 36:
+                column_index = embed_index_device
+            value = source
+            if row_index is not None:
+                value = value.index_select(0, row_index)
+            if column_index is not None:
+                value = value.index_select(1, column_index)
+        else:
+            raise ValueError(f"unsupported structured mapping for {student_key}")
+
+        if value.shape != student_tensor.shape:
+            raise ValueError(
+                f"structured mapping shape mismatch for {student_key}: "
+                f"{tuple(source.shape)} -> {tuple(value.shape)}, "
+                f"expected {tuple(student_tensor.shape)}"
+            )
+        mapped[student_key] = value.detach().clone()
+    return mapped
+
 def save_ema(student, ema, path):
     ema.store(student.get_params())
     ema.copy_to(student.get_params())
@@ -142,14 +224,18 @@ def main():
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--learning-rate", type=float, default=1e-4)
     parser.add_argument("--flow-weight", type=float, default=0.1)
+    parser.add_argument("--anchor-weight", type=float, default=0.0)
+    parser.add_argument("--anchor-dir", type=Path, default=None)
+    parser.add_argument("--anchor-steps", type=int, default=16)
     parser.add_argument("--geometry-weight", type=float, default=0.0)
+    parser.add_argument("--distribution-weight", type=float, default=0.0)
     parser.add_argument("--conditional-samples", type=int, default=1)
     parser.add_argument("--student-layers", type=int, default=0)
     parser.add_argument("--student-embed-dim", type=int, default=0)
     parser.add_argument("--student-heads", type=int, default=0)
     parser.add_argument(
         "--student-init",
-        choices=["auto", "teacher", "random", "checkpoint"],
+        choices=["auto", "teacher", "random", "checkpoint", "structured_teacher"],
         default="auto",
         help="Student initialization. Teacher initialization requires matching architectures.",
     )
@@ -195,6 +281,14 @@ def main():
         raise ValueError("checkpoint initialization requires --student-init-dir")
     if args.student_init != "checkpoint" and args.student_init_dir is not None:
         raise ValueError("--student-init-dir is only valid with checkpoint initialization")
+    if args.anchor_weight < 0:
+        raise ValueError("anchor_weight must be non-negative")
+    if args.distribution_weight < 0:
+        raise ValueError("distribution_weight must be non-negative")
+    if (args.anchor_weight > 0) != (args.anchor_dir is not None):
+        raise ValueError("positive --anchor-weight requires --anchor-dir, and vice versa")
+    if args.anchor_steps < 1:
+        raise ValueError("anchor_steps must be positive")
     save_epochs = set(args.save_epochs)
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
@@ -208,6 +302,15 @@ def main():
     teacher = agent.model.eval()
     for parameter in teacher.parameters():
         parameter.requires_grad_(False)
+    anchor = None
+    if args.anchor_dir is not None:
+        anchor_agent = make_agent(
+            args.anchor_dir, args.batch_size, args.anchor_steps,
+            args.student_layers or 4, args.student_embed_dim or 72, args.student_heads or 4,
+        )
+        anchor = anchor_agent.model.to(agent.device).eval()
+        for parameter in anchor.parameters():
+            parameter.requires_grad_(False)
     student = make_student(
         agent,
         args.student_steps,
@@ -231,6 +334,15 @@ def main():
             for key in loaded_state
         ):
             raise RuntimeError("student does not exactly match initialization checkpoint")
+    elif args.student_init == "structured_teacher":
+        if (args.student_layers, args.student_embed_dim, args.student_heads) != (2, 36, 3):
+            raise ValueError(
+                "structured_teacher currently supports only a 4x72 teacher and 2x36 student"
+            )
+        structured_state = structured_teacher_state_dict(
+            teacher.state_dict(), student.state_dict()
+        )
+        student.load_state_dict(structured_state, strict=True)
     for parameter in student.parameters():
         parameter.requires_grad_(True)
     initialization_max_abs_diff = None
@@ -243,7 +355,7 @@ def main():
         )
         if initialization_max_abs_diff != 0.0:
             raise RuntimeError("teacher-initialized student does not exactly match teacher")
-    elif args.student_init == "checkpoint":
+    elif args.student_init in {"checkpoint", "structured_teacher"}:
         initialization_max_abs_diff = 0.0
 
     optimizer = torch.optim.Adam(student.get_params(), lr=args.learning_rate)
@@ -258,6 +370,7 @@ def main():
     )
     validation_noise = torch.randn_like(validation_action)
     validation_targets = []
+    validation_anchor_targets = []
     with torch.no_grad():
         for grid_index in range(args.student_steps):
             start_time = grid_index / args.student_steps
@@ -265,6 +378,11 @@ def main():
                 teacher, validation_noise, validation_state, start_time, args.teacher_steps
             )
             validation_targets.append((start_time, x_t, target_velocity))
+            if anchor is not None:
+                _, anchor_velocity = teacher_shortcut_target(
+                    anchor, validation_noise, validation_state, start_time, args.anchor_steps
+                )
+                validation_anchor_targets.append(anchor_velocity)
         validation_flow_t = torch.linspace(
             0.05, 0.95, validation_action.shape[0], device=validation_action.device
         )
@@ -277,6 +395,7 @@ def main():
     best_loss, best_epoch, history = math.inf, -1, []
     for epoch in trange(args.epochs, desc=f"FM shortcut {args.teacher_steps}-to-{args.student_steps}"):
         totals, shortcut_losses, flow_losses, geometry_losses = [], [], [], []
+        anchor_losses, distribution_losses = [], []
         for batch_index, (state, action, _) in enumerate(agent.train_dataloader):
             if args.max_batches_per_epoch and batch_index >= args.max_batches_per_epoch:
                 break
@@ -298,10 +417,24 @@ def main():
             geometry_loss = conditional_pairwise_geometry(
                 student_endpoint, teacher_endpoint, args.conditional_samples
             )
+            distribution_loss = conditional_centered_gram(
+                student_endpoint, teacher_endpoint, args.conditional_samples
+            )
+            if anchor is None:
+                anchor_loss = predicted_velocity.sum() * 0.0
+            else:
+                with torch.no_grad():
+                    _, anchor_velocity = teacher_shortcut_target(
+                        anchor, noise, state, start_time, args.anchor_steps
+                    )
+                anchor_endpoint = x_t + (1.0 - start_time) * anchor_velocity
+                anchor_loss = F.mse_loss(student_endpoint, anchor_endpoint)
             loss = (
                 shortcut_loss
                 + args.flow_weight * flow_loss
                 + args.geometry_weight * geometry_loss
+                + args.distribution_weight * distribution_loss
+                + args.anchor_weight * anchor_loss
             )
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
@@ -312,9 +445,12 @@ def main():
             shortcut_losses.append(shortcut_loss.detach().item())
             flow_losses.append(flow_loss.detach().item())
             geometry_losses.append(geometry_loss.detach().item())
+            distribution_losses.append(distribution_loss.detach().item())
+            anchor_losses.append(anchor_loss.detach().item())
         scheduler.step()
         student.eval()
         validation_shortcuts, validation_geometries = [], []
+        validation_distributions, validation_anchors = [], []
         with torch.no_grad():
             for start_time, x_t, target_velocity in validation_targets:
                 t = torch.full(
@@ -323,13 +459,28 @@ def main():
                 )
                 predicted_velocity = student.velocity(x_t, t, validation_state)
                 validation_shortcuts.append(F.mse_loss(predicted_velocity, target_velocity))
+                student_endpoint = x_t + (1.0 - start_time) * predicted_velocity
                 validation_geometries.append(
                     conditional_pairwise_geometry(
-                        x_t + (1.0 - start_time) * predicted_velocity,
+                        student_endpoint,
                         x_t + (1.0 - start_time) * target_velocity,
                         args.conditional_samples,
                     )
                 )
+                validation_distributions.append(
+                    conditional_centered_gram(
+                        student_endpoint,
+                        x_t + (1.0 - start_time) * target_velocity,
+                        args.conditional_samples,
+                    )
+                )
+                if anchor is not None:
+                    validation_anchors.append(
+                        F.mse_loss(
+                            student_endpoint,
+                            x_t + (1.0 - start_time) * validation_anchor_targets[len(validation_anchors)],
+                        )
+                    )
             validation_flow = F.mse_loss(
                 student.velocity(validation_flow_x, validation_flow_t, validation_state),
                 validation_flow_target,
@@ -338,6 +489,11 @@ def main():
                 torch.stack(validation_shortcuts).mean()
                 + args.flow_weight * validation_flow
                 + args.geometry_weight * torch.stack(validation_geometries).mean()
+                + args.distribution_weight * torch.stack(validation_distributions).mean()
+                + args.anchor_weight * (
+                    torch.stack(validation_anchors).mean()
+                    if validation_anchors else validation_flow * 0.0
+                )
             ).item()
         student.train()
         record = {
@@ -346,6 +502,8 @@ def main():
             "shortcut_loss": float(np.mean(shortcut_losses)),
             "flow_loss": float(np.mean(flow_losses)),
             "geometry_loss": float(np.mean(geometry_losses)),
+            "distribution_loss": float(np.mean(distribution_losses)),
+            "anchor_loss": float(np.mean(anchor_losses)),
             "validation_loss": validation_loss,
             "learning_rate": optimizer.param_groups[0]["lr"],
         }
@@ -380,7 +538,13 @@ def main():
         "best_epoch": best_epoch,
         "best_loss": best_loss,
         "flow_weight": args.flow_weight,
+        "anchor_weight": args.anchor_weight,
+        "anchor_checkpoint": (
+            str(args.anchor_dir / "eval_best_flow.pth") if args.anchor_dir else None
+        ),
+        "anchor_steps": args.anchor_steps,
         "geometry_weight": args.geometry_weight,
+        "distribution_weight": args.distribution_weight,
         "conditional_samples": args.conditional_samples,
         "student_architecture": {
             "layers": (

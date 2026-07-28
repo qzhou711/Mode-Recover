@@ -265,16 +265,28 @@ Large同规模`16→1`蒸馏成功将推理步数压缩16倍，保留全部模�
 | `4×64 / 4×72` | 217,666 | 74.4% | 14/24 | 0.212 |
 | `4×72 / 3×48` | 274,826 | 86.7% | 9/24 | 0.079 |
 
-这些student均为Random-init。增大student只能轻微提高部分熵指标，甚至大于teacher结构的student仍collapse。因此当前数据不能证明“参数压缩导致collapse”，只能说明跨结构、Random-init和pointwise fidelity目标的组合与collapse强相关。
+这些student均为Random-init。其严重collapse不能直接归因于模型规模，而应视为“跨结构、Random-init、pointwise fidelity”组合的结果。
 
-### 9.4 当前最准确的结论
+### 9.4 公平Full-student warm start容量扫描
 
-- 模型规模主要影响Full模型闭环成功率，不决定其能否表达24种模式；
-- 直接16步solver改成1步会普遍损失模式；
-- 同规模Teacher-init一步蒸馏在`2×36`、`3×48`、`4×72`上均基本保留多模态；
-- Random-init是当前严重collapse的关键控制变量；
-- 跨规模实验仍混入结构变化和初始化差异，尚不能隔离模型规模效应；
-- 成功率与多样性显著解耦，必须联合报告覆盖、熵和必要时的JS。
+固定`FM-4x72-16-Full` teacher，从对应结构的Full-16 checkpoint初始化student；所有初始化均验证参数最大差为0。
+
+| Student | Full-16：SR / 模式 / 熵 | Solver-1：SR / 模式 / 熵 | Full-init Distill-1：SR / 模式 / 熵 |
+|---|---|---|---|
+| `2×36` | 66.5% / 24 / 0.942 | 55.8% / 16 / 0.700 | **71.9% / 17 / 0.775** |
+| `3×48` | 92.7% / 24 / 0.965 | 82.1% / 14 / 0.569 | **88.8% / 23 / 0.832** |
+| `4×64` | 93.8% / 24 / 0.934 | 48.1% / 13 / 0.586 | **94.0% / 23 / 0.879** |
+
+相对Random-init，Full warm start使三个结构的熵分别提高0.628、0.639、0.667。`3×48`和`4×64`的SR也分别提高12.3和19.6个百分点；`2×36`则以8.7个百分点SR换取更好的覆盖与熵，暴露出真正的受限容量Pareto权衡。
+
+### 9.5 当前最准确的结论
+
+- 三个Full模型均能表达24模式，容量主要影响闭环控制精度；
+- 直接16步solver改为1步会普遍损失模式；
+- Random-init是旧跨结构实验严重collapse的主要混淆变量；
+- 公平warm start后，student容量与可达到的SR—多样性前沿呈清晰正相关；
+- `4×64`几乎恢复Full性能，`3×48`接近可用阈值，`2×36`仍有明确的容量/teacher-mismatch瓶颈；
+- 后续抗collapse方法应以`2×36`为主要压力测试，同时在`3×48`验证是否具有普适收益。
 
 ## 10. 论文可用的核心对比
 
@@ -417,8 +429,17 @@ TODO 5使用12个固定状态×2,048噪声及1,000个成对闭环episode。需�
 | `FM-2x36-1-Distill-2x36` | 37,982 | 同规模蒸馏 | `FM-2x36-16-Full` | Teacher | Paired-1000 | 590/1000，59.0% | 24/24 | 0.887 | 0.044 |
 | `FM-2x36-1-Distill-4x72` | 37,982 | 跨规模蒸馏 | `FM-4x72-16-Full` | Random | Standard-480 | 387/480，80.6% | 12/24 | 0.147 | — |
 | `FM-2x36-1-Distill-4x72` | 37,982 | 跨规模蒸馏 | `FM-4x72-16-Full` | Random | Paired-1000 | 771/1000，77.1% | 14/24 | 0.141 | 0.515 |
+| `FM-2x36-1-Distill-4x72` | 37,982 | 跨规模蒸馏 | `FM-4x72-16-Full` | `FM-2x36-16-Full` | Standard-480 | 345/480，71.9% | 17/24 | 0.775 | — |
+| `FM-2x36-1-Distill-4x72` | 37,982 | 双锚定蒸馏 | `FM-4x72-16-Full`＋`FM-2x36-16-Full` | Full-student，anchor=0.1 | Standard-480 | 336/480，70.0% | 19/24 | 0.803 | — |
+| `FM-2x36-1-Distill-4x72` | 37,982 | 双锚定蒸馏 | `FM-4x72-16-Full`＋`FM-2x36-16-Full` | Full-student，anchor=1.0 | Standard-480 | 315/480，65.6% | 22/24 | 0.858 | — |
+| `FM-2x36-1-Distill-4x72` | 37,982 | teacher-only分布蒸馏 | `FM-4x72-16-Full` | Structured-slice，Gram=1 | Standard-480 | 305/480，63.5% | 4/24 | 0.119 | — |
+| `FM-2x36-1-Distill-4x72` | 37,982 | teacher-only分布蒸馏 | `FM-4x72-16-Full` | Structured-slice，Gram=10 | Standard-480 | 312/480，65.0% | 5/24 | 0.128 | — |
 | `FM-3x48-1-Distill-4x72` | 95,042 | 跨规模蒸馏 | `FM-4x72-16-Full` | Random | Standard-480 | 367/480，76.5% | 11/24 | 0.193 | — |
+| `FM-3x48-1-Distill-4x72` | 95,042 | 跨规模蒸馏 | `FM-4x72-16-Full` | `FM-3x48-16-Full` | Standard-480 | 426/480，88.8% | 23/24 | 0.832 | — |
+| `FM-4x64-16-Full` | 217,666 | 完整训练 | 原始数据 | — | Standard-480 | 450/480，93.8% | 24/24 | 0.934 | — |
+| `FM-4x64-1-Solver` | 217,666 | solver-only | `FM-4x64-16-Full` | 继承checkpoint | Standard-480 | 231/480，48.1% | 13/24 | 0.586 | — |
 | `FM-4x64-1-Distill-4x72` | 217,666 | 跨规模蒸馏 | `FM-4x72-16-Full` | Random | Standard-480 | 357/480，74.4% | 14/24 | 0.212 | — |
+| `FM-4x64-1-Distill-4x72` | 217,666 | 跨规模蒸馏 | `FM-4x72-16-Full` | `FM-4x64-16-Full` | Standard-480 | 451/480，94.0% | 23/24 | 0.879 | — |
 | `FM-4x72-1-Distill-3x48` | 274,826 | 跨结构蒸馏 | `FM-3x48-16-Full` | Random | Standard-480 | 416/480，86.7% | 9/24 | 0.079 | — |
 | `FM-2x36-16-PerturbFull` | 37,982 | 扰动完整训练 | 扰动状态＋原标签 | — | Standard-480 | 194/480，40.4% | 7/24 | 0.446 | — |
 | `FM-2x36-1-PerturbFull` | 37,982 | solver-only | 同一PerturbFull checkpoint | 继承checkpoint | Standard-480 | 471/480，98.1% | 2/24 | 0.057 | — |
@@ -429,5 +450,79 @@ TODO 5使用12个固定状态×2,048噪声及1,000个成对闭环episode。需�
 - `Solver`：不训练，只改变ODE积分步数；
 - `Distill`：16-step teacher到1-step student；
 - 同规模比较必须显式标注Teacher-init或Random-init；
-- 跨规模当前均为Random-init，不能直接归因于模型规模；
+- 跨规模必须区分Random-init和Full-student warm start；旧Random-init结果不能直接归因于模型规模；
 - 论文主结果优先使用Standard-480，分布机制使用Paired-1000与JS。
+
+## 18. 有限Student容量下的抗collapse研究路线
+
+公平初始化扫描将问题收敛为：在固定`2×36`参数预算和1步推理下，能否同时接近Random-init方案的高SR（80.6%）与同规模Full/Teacher-init方案的高多样性（熵0.885–0.942、23–24模式）。当前Full-init跨规模结果71.9%、17模式、熵0.775，是主要改进基线。
+
+### 18.1 最有希望的研究问题
+
+1. **双重功能锚定是否能合并两类teacher的优势？** 大teacher提供闭环成功所需的shortcut target，小结构Full模型提供已学到的noise-to-mode映射。训练时匹配大teacher端点，同时用共享噪声约束student不要偏离其Full初始化的条件速度场或端点分布。功能锚定优先于参数L2。
+2. **分布级匹配能否替代单样本MSE的平均化偏置？** 在同一状态、同一批噪声下匹配中心化Gram/covariance、MMD或最优传输，保留noise basin之间的相对几何；不能再次使用被状态差异主导的跨状态距离。
+3. **模式均衡采样能否挽回低频模式而不损害SR？** Avoiding任务有24个可识别模式，可对teacher target按模式重加权或构造均衡batch，直接测试collapse是否来自高频安全路径主导梯度。
+4. **闭环状态蒸馏是否主要提升SR？** 收集student on-policy偏离状态，由大teacher重新标注；clean分支继续承担模式保持。该方向解决SR，不应单独承担多样性目标。
+5. **固定参数量下，容量如何分配给多模态映射？** 比较单一MLP与共享主干加轻量mode experts/adapter，让不同噪声区域使用不同子空间；总参数保持约37,982，检验问题是总容量还是表示干扰。
+6. **联合指标选checkpoint能否避免训练后期collapse？** 使用小规模闭环SR与固定状态条件模式保持共同选Pareto checkpoint，避免仅按离线MSE选择趋向均值化的模型。
+
+### 18.2 建议执行顺序与判据
+
+- **P0已完成：双锚定权重扫描。** anchor从0提高到0.1和1.0时，模式覆盖17→19→22、熵0.775→0.803→0.858，但SR 71.9%→70.0%→65.6%。功能保持有效，但依赖额外小Full模型，只作为机制上界。
+- **P1初版失败：teacher-only结构化切片＋中心化Gram。** Gram=1/10分别只有4/5模式、熵0.119/0.128。朴素切片没有保持teacher函数，分布正则无法补救；下一步应先优化teacher-derived初始化。
+- **P2：模式均衡蒸馏。** 使用24-mode oracle标签做机制实验；若有效，再研究无显式模式标签的聚类或OT版本。
+- **P3：on-policy teacher relabel。** 只在多样性已经保持的候选上提高闭环恢复能力。
+- **P4：结构化容量。** 若目标损失仍无法突破Pareto前沿，再测试等参数量轻量experts。
+
+最低成功标准为Pareto支配当前Full-init基线：SR不低于71.9%，且熵高于0.775、覆盖超过17；有论文价值的目标为SR至少78%、熵至少0.85、覆盖至少22。所有候选必须报告Standard-480、Paired-1000/JS、固定状态映射和至少3个训练seed。
+
+## 19. Teacher-derived初始化改进与四卡实验设计
+
+### 19.1 当前失败定位
+
+现有Structured-slice直接选择teacher第0、3层、三个head和部分通道。Transformer隐藏维度没有天然对齐的逐通道语义，残差分支、LayerNorm、attention Q/K/V和MLP共同依赖同一隐藏基底；直接删除坐标会同时破坏多个子函数。实验中Gram权重从1提高到10仍只有4–5模式，说明主要瓶颈在初始化函数保真度，而不是Gram权重不足。
+
+### 19.2 更有希望的teacher-only初始化
+
+1. **激活感知结构化裁剪。** 用训练状态、时间和噪声组成calibration set，统计每层hidden、head输出和MLP neuron对teacher端点的敏感度；联合选择36维子空间、3个head和2层，而不是按固定编号切片。裁剪后对LayerNorm与输出投影做最小二乘校准。
+2. **低秩投影初始化。** 对teacher各层calibration activation做PCA/SVD得到`P:72→36`，用`P`和伪逆将输入、QKV、MLP和输出权重投影到student基底。它比坐标裁剪更能保留teacher表示，但跨层投影必须分别校准，不能假定同一基底。
+3. **层合并与功能校准。** 将teacher层`0+1`和`2+3`分别压成两个student block，以teacher block-pair输出为监督，对每个student block做局部回归；完成逐层校准后再做全网络端点蒸馏。
+4. **先压模型、后压步数。** 首先训练`FM-2x36-16`去匹配`FM-4x72-16`的速度场/端点，验收函数保真度；只有通过后才进行`16→1`蒸馏。这样能区分模型压缩损失与一步transport损失。
+
+### 19.3 四卡并行矩阵
+
+| GPU | 初始化/训练方案 | 首轮目的 |
+|---:|---|---|
+| 0 | 激活重要性裁剪＋逐层校准 | 判断数据感知坐标选择是否优于固定切片 |
+| 1 | PCA/SVD子空间投影＋逐层校准 | 测试连续低秩基底能否保留noise-to-mode函数 |
+| 2 | 层对合并＋局部功能蒸馏 | 测试深度压缩的主要误差是否可通过block matching修复 |
+| 3 | Random-init `2×36-16` teacher-only功能蒸馏 | 作为不依赖初始化技巧的强校准基线 |
+
+第一阶段只训练/校准`2×36-16`，不立即做1-step长评估。使用固定calibration set验收：teacher/student共享噪声端点MSE、pairwise相关、条件Gram误差，以及120条闭环SR/模式。只有明显优于朴素Structured-slice且保留至少18个模式的候选，才进入第二阶段统一`16→1`、500 epochs和Standard-480。这样四张卡分别回答独立问题，并避免在错误初始化上重复消耗完整评估时间。
+
+### 19.4 推荐决策顺序
+
+优先级为：**PCA/SVD投影≈层合并校准 > 激活裁剪 > Random功能蒸馏**。若四者都无法在16步阶段保留多样性，说明`2×36`直接承接`4×72`函数的难度过高，应加入`3×48`teacher-assistant，采用`4×72→3×48→2×36`的模型维度渐进压缩；这与被放弃的采样步数progressive distillation不同，解决的是表示空间迁移问题。
+
+
+## 20. 结构压缩前置消融：Width、Sinkhorn与DDIL
+
+为给正式Consistency Distillation选择结构初始化，固定`FM-4x72-16-Full` teacher，先保持16步推理，只比较结构压缩和训练约束。该实验不是CD；当前pointwise目标仅拟合相同`x_t、t、state`下的teacher速度。
+
+| 方法 | Student | 参数量 | 开环MSE / Pairwise相关 | Standard-120成功率 | 模式覆盖 | 模式熵 |
+|---|---|---:|---|---:|---:|---:|
+| Width pointwise | `4×48×4 heads` | 123,314 | **0.114 / 0.937** | 55/120，45.8% | **16/24** | **0.789** |
+| Intermediate pointwise | `3×48×3 heads` | 95,042 | 0.222 / 0.857 | 80/120，66.7% | 8/24 | 0.147 |
+| Balanced-Sinkhorn | `3×48×3 heads` | 95,042 | 0.588 / 0.455 | 52/120，43.3% | 6/24 | 0.305 |
+| DDIL+Sinkhorn | `3×48×3 heads` | 95,042 | 0.311 / 0.788 | **98/120，81.7%** | 5/24 | 0.096 |
+
+清晰结论：
+
+1. `4×48`宽度压缩对teacher函数几何和模式保持最好，但SR较低；
+2. 当前`4→3`删层映射明显损伤noise-to-mode映射；
+3. 当前无语义速度集合Sinkhorn没有保护模式，不能作为有效mode-preserving方法；
+4. DDIL改善了闭环成功率，却把策略进一步集中到5个模式，是新的高SR—低多样性实例；
+5. DDIL应作为CD的闭环恢复辅助分支，而非mode-preserving约束；
+6. 下一步主实验应采用真正的跨时间CD，并做`CD`、`CD+改进分布约束`、`CD+分布约束+DDIL`三组对照。
+
+完整设置、开环Gram指标、限制和产物见`11_flow_initialization_correction.md`第6节。

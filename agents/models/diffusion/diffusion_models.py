@@ -577,7 +577,8 @@ class DiffusionTransformerNetwork(nn.Module):
             states,
             goals,
             uncond: Optional[bool] = False,
-            keep_last_actions: Optional[bool] = False
+            keep_last_actions: Optional[bool] = False,
+            stop_time: Optional[torch.Tensor] = None,
     ):
 
         if len(states.size()) != 3:
@@ -591,6 +592,12 @@ class DiffusionTransformerNetwork(nn.Module):
         # get the time embedding
         times = einops.rearrange(time, 'b -> b 1')
         emb_t = self.time_emb(times)
+        if stop_time is not None:
+            # CTM transition conditioning. Subtracting the data-boundary
+            # embedding exactly recovers the pretrained network for stop=1.
+            stops = einops.rearrange(stop_time, 'b -> b 1')
+            boundary = torch.full_like(stops, 100.0)
+            emb_t = emb_t + self.time_emb(stops) - self.time_emb(boundary)
 
         if self.goal_conditioned:
             second_half_idx = self.goal_seq_len + 1
