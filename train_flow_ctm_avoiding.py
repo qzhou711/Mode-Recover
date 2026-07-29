@@ -48,10 +48,13 @@ def main():
     parser.add_argument('--endpoint-anchor-weight',type=float,default=0.0)
     parser.add_argument('--distribution-weight',type=float,default=0.0)
     parser.add_argument('--conditional-samples',type=int,default=1)
+    parser.add_argument('--save-epochs',type=int,nargs='*',default=[])
     parser.add_argument('--delta',type=float,default=0.01)
     parser.add_argument('--seed',type=int,default=42)
     args=parser.parse_args()
     if args.time_bins < 2: parser.error('--time-bins must be at least 2')
+    if any(epoch < 1 or epoch > args.epochs for epoch in args.save_epochs): parser.error('--save-epochs values must be in [1, epochs]')
+    save_epochs=set(args.save_epochs)
     torch.manual_seed(args.seed); np.random.seed(args.seed)
     args.output_dir.mkdir(parents=True,exist_ok=True)
     wandb.init(mode='disabled')
@@ -103,6 +106,11 @@ def main():
         history.append(record)
         if score<best:
             best,best_epoch=score,epoch; torch.save(target.state_dict(),args.output_dir/'eval_best_flow.pth')
+        completed_epoch=epoch+1
+        if completed_epoch in save_epochs:
+            checkpoint_dir=args.output_dir/'checkpoints'/f'epoch_{completed_epoch:04d}'
+            checkpoint_dir.mkdir(parents=True,exist_ok=True)
+            torch.save(target.state_dict(),checkpoint_dir/'eval_best_flow.pth')
         if epoch%10==0 or epoch+1==args.epochs: print(json.dumps(record),flush=True)
     torch.save(target.state_dict(),args.output_dir/'last_flow.pth')
     summary={'method':'flow_boundary_ctm','time_orientation':'noise_0_to_data_1','teacher_checkpoint':str(args.teacher_dir/'eval_best_flow.pth'),'student_architecture':{'layers':args.student_layers,'embed_dim':args.student_embed_dim,'heads':args.student_heads},'initialization':initialization,'epochs':args.epochs,'time_bins':args.time_bins,'dsm_weight':args.dsm_weight,'endpoint_probability':args.endpoint_probability,'endpoint_anchor_weight':args.endpoint_anchor_weight,'distribution_weight':args.distribution_weight,'conditional_samples':args.conditional_samples,'best_epoch':best_epoch,'best_selection_loss':best,'history':history}

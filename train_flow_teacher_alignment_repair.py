@@ -27,9 +27,39 @@ from train_flow_compression_stage1 import (
 from train_flow_progressive_compression import initialize_student, selection_basis
 
 
-def teacher_derived_basis(activations, layers, embed_dim, heads):
+def teacher_derived_basis(activations, layers, embed_dim, heads, method="activation"):
     if (layers, embed_dim, heads) == (3, 48, 3):
-        return selection_basis(activations, layers, heads)
+        if method in {"activation", "early"}:
+            basis, metadata = selection_basis(activations, layers, heads)
+            if method == "early":
+                metadata["teacher_layers"] = [0, 1, 2]
+            metadata["method"] = method
+            return basis, metadata
+        if method == "structured":
+            basis = torch.zeros(72, 48)
+            basis[torch.arange(48), torch.arange(48)] = 1.0
+            return basis, {
+                "method": method,
+                "teacher_layers": [0, 2, 3],
+                "selected_channels": list(range(48)),
+            }
+        if method == "pca":
+            centered = activations - activations.mean(dim=0, keepdim=True)
+            _, singular_values, right_vectors = torch.linalg.svd(
+                centered, full_matrices=False
+            )
+            basis = right_vectors[:48].T.contiguous()
+            signs = torch.sign(
+                basis[torch.argmax(basis.abs(), dim=0), torch.arange(48)]
+            )
+            basis = basis * torch.where(signs == 0, torch.ones_like(signs), signs)
+            explained = singular_values[:48].square().sum() / singular_values.square().sum()
+            return basis, {
+                "method": method,
+                "teacher_layers": [0, 2, 3],
+                "explained_variance": float(explained),
+            }
+        raise ValueError(f"unsupported 3x48 initialization method: {method}")
     if (layers, embed_dim, heads) != (4, 54, 3):
         raise ValueError("supported students are 3x48x3 and 4x54x3")
     energy = activations.square().mean(dim=0)
@@ -99,6 +129,11 @@ def main():
     parser.add_argument("--student-layers", type=int, required=True)
     parser.add_argument("--student-embed-dim", type=int, required=True)
     parser.add_argument("--student-heads", type=int, required=True)
+    parser.add_argument(
+        "--init-method",
+        choices=["structured", "activation", "pca", "early"],
+        default="activation",
+    )
     parser.add_argument("--epochs", type=int, default=300)
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--max-batches-per-epoch", type=int, default=4)
@@ -130,7 +165,8 @@ def main():
         teacher, agent.train_dataloader, agent.scaler, args.calibration_batches
     )
     basis, initialization = teacher_derived_basis(
-        activations, args.student_layers, args.student_embed_dim, args.student_heads
+        activations, args.student_layers, args.student_embed_dim,
+        args.student_heads, args.init_method
     )
     initialization["load_max_abs_diff"] = initialize_student(
         teacher, student, basis, initialization["teacher_layers"]
