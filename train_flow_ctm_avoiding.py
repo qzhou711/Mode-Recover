@@ -11,10 +11,14 @@ from agents.models.flow_matching.ctm import (
 )
 
 
-def initialize_student(student, teacher, init_dir):
-    if init_dir is None:
+def initialize_student(student, teacher, init_kind, init_dir):
+    if init_kind == "random":
+        return "random"
+    if init_kind == "teacher":
         student.load_state_dict(teacher.state_dict(), strict=True)
         return "teacher"
+    if init_dir is None:
+        raise ValueError("checkpoint initialization requires --init-dir")
     checkpoint = init_dir/'eval_best_flow.pth'
     student.load_state_dict(torch.load(checkpoint, map_location=student.device), strict=True)
     return str(checkpoint)
@@ -24,6 +28,7 @@ def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--teacher-dir',type=Path,required=True)
     parser.add_argument('--output-dir',type=Path,required=True)
+    parser.add_argument('--student-init',choices=['random','teacher','checkpoint'],default='teacher')
     parser.add_argument('--init-dir',type=Path)
     parser.add_argument('--student-layers',type=int,default=4)
     parser.add_argument('--student-embed-dim',type=int,default=72)
@@ -53,7 +58,7 @@ def main():
     agent=make_agent(args.teacher_dir,args.batch_size,args.teacher_steps, args.teacher_layers,args.teacher_embed_dim,args.teacher_heads)
     teacher=freeze(agent.model)
     student=make_student(agent,1,args.student_layers,args.student_embed_dim,args.student_heads,'random').to(agent.device)
-    initialization=initialize_student(student,teacher,args.init_dir)
+    initialization=initialize_student(student,teacher,args.student_init,args.init_dir)
     target=freeze(copy.deepcopy(student)); student.train()
     optimizer=torch.optim.Adam(student.get_params(),lr=args.learning_rate)
     scheduler=torch.optim.lr_scheduler.CosineAnnealingLR(optimizer,T_max=args.epochs,eta_min=1e-6)
