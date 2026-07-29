@@ -7,10 +7,10 @@ from envs.gym_avoiding_env.gym_avoiding.envs.objects.avoiding_objects import get
 from teacher_flow_deployment import build_flow,DeploymentScaler
 
 def main():
- p=argparse.ArgumentParser();p.add_argument('--bundle-dir',type=Path,required=True);p.add_argument('--model-dir',type=Path,required=True);p.add_argument('--layers',type=int,default=3);p.add_argument('--embed-dim',type=int,default=48);p.add_argument('--heads',type=int,default=3);p.add_argument('--steps',type=int,default=1);p.add_argument('--n-trajectories',type=int,required=True);p.add_argument('--seed',type=int,default=42);p.add_argument('--output-dir',type=Path,required=True);a=p.parse_args();a.output_dir.mkdir(parents=True,exist_ok=True)
+ p=argparse.ArgumentParser();p.add_argument('--bundle-dir',type=Path,required=True);p.add_argument('--model-dir',type=Path,required=True);p.add_argument('--layers',type=int,default=3);p.add_argument('--embed-dim',type=int,default=48);p.add_argument('--heads',type=int,default=3);p.add_argument('--steps',type=int,default=1);p.add_argument('--n-trajectories',type=int,required=True);p.add_argument('--episode-start',type=int,default=0);p.add_argument('--seed',type=int,default=42);p.add_argument('--output-dir',type=Path,required=True);a=p.parse_args();a.output_dir.mkdir(parents=True,exist_ok=True)
  meta=torch.load(a.bundle_dir/'deployment_metadata.pt',map_location='cpu');scaler=DeploymentScaler(meta,'cuda');model=build_flow(a.layers,a.embed_dim,a.heads,'cuda',a.steps);model.load_state_dict(torch.load(a.model_dir/'eval_best_flow.pth',map_location='cuda'),strict=True);model.min_action=meta['y_bounds_tensor'][0].cuda();model.max_action=meta['y_bounds_tensor'][1].cuda();model.eval();env=ObstacleAvoidanceEnv(render=False);env.start();paths=[];successes=[];modes=[];start=time.monotonic()
  for ep in range(a.n_trajectories):
-  np.random.seed(a.seed+ep);torch.manual_seed(a.seed+ep);ctx=deque(maxlen=meta['window_size']);obs=env.reset();pred=env.robot_state();fixed_z=pred[2:];path=[env.robot.current_c_pos[:2].copy()];done=False;info=(np.zeros(9),False)
+  global_ep=a.episode_start+ep;np.random.seed(a.seed+global_ep);torch.manual_seed(a.seed+global_ep);ctx=deque(maxlen=meta['window_size']);obs=env.reset();pred=env.robot_state();fixed_z=pred[2:];path=[env.robot.current_c_pos[:2].copy()];done=False;info=(np.zeros(9),False)
   while not done:
    raw=np.concatenate((pred[:2],obs));s=scaler.scale_input(torch.from_numpy(raw).float().view(1,4));ctx.append(s);state=torch.stack(tuple(ctx),dim=1)
    with torch.no_grad():out=model.sample(state,steps=a.steps)
