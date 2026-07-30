@@ -1,0 +1,111 @@
+{"epoch": 0, "loss": 0.6506524682044983, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 25, "loss": 0.28034063428640366, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 50, "loss": 0.20593218505382538, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 75, "loss": 0.15636396408081055, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 100, "loss": 0.16517867147922516, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 125, "loss": 0.1406826339662075, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 0, "loss": 0.13109897635877132, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 25, "loss": 0.07199859619140625, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 50, "loss": 0.06272946950048208, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 75, "loss": 0.060787673108279705, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 100, "loss": 0.055541979148983955, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 125, "loss": 0.05620178114622831, "active_blocks": [0, 1, 2, 3]}
+{
+  "method": "teacher_assistant",
+  "student_architecture": {
+    "layers": 3,
+    "embed_dim": 48,
+    "heads": 3
+  },
+  "initialization": {
+    "method": "teacher_assistant",
+    "assistant_initialization": {
+      "teacher_layers": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "selected_heads": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "selected_channels": [
+        1,
+        2,
+        3,
+        6,
+        7,
+        8,
+        10,
+        11,
+        13,
+        14,
+        15,
+        16,
+        18,
+        19,
+        20,
+        21,
+        25,
+        28,
+        29,
+        30,
+        31,
+        32,
+        34,
+        35,
+        36,
+        39,
+        40,
+        41,
+        43,
+        44,
+        46,
+        48,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        57,
+        58,
+        59,
+        61,
+        62,
+        64,
+        66,
+        67,
+        69,
+        71
+      ],
+      "method": "width",
+      "load_max_abs_diff": 0.0
+    },
+    "student_layer_map": [
+      0,
+      2,
+      3
+    ]
+  },
+  "stages": [
+    {
+      "source": "FM-4x72-16",
+      "target": "FM-4x48-16",
+      "epochs": 150,
+      "best_loss": 0.13319948129355907
+    },
+    {
+      "source": "FM-4x48-16",
+      "target": "FM-3x48-16",
+      "epochs": 150
+    }
+  ],
+  "best_selection_loss": 0.05444941949099302,
+  "uses_original_demonstrations": false,
+  "uses_expert_actions": false,
+  "buffer": "logs/avoiding/teacher_generated_transfer/transfer_buffer.pt"
+}

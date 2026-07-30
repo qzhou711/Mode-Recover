@@ -19,3 +19,44 @@
 {"stage": "ctm", "method": "pca_multinoise_endpoint", "epoch": 150, "ctm_loss": 0.07045957073569298, "pseudo_dsm_loss": 0.31150853633880615, "selection_loss": 0.1016104243695736}
 {"stage": "ctm", "method": "pca_multinoise_endpoint", "epoch": 175, "ctm_loss": 0.07114532310515642, "pseudo_dsm_loss": 0.3888220116496086, "selection_loss": 0.11002752427011728}
 {"stage": "ctm", "method": "pca_multinoise_endpoint", "epoch": 200, "ctm_loss": 0.05134884873405099, "pseudo_dsm_loss": 0.33136725425720215, "selection_loss": 0.0844855741597712}
+{"stage": "ctm", "method": "pca_multinoise_endpoint", "epoch": 225, "ctm_loss": 0.04931345582008362, "pseudo_dsm_loss": 0.23486873507499695, "selection_loss": 0.07280032932758332}
+{"stage": "ctm", "method": "pca_multinoise_endpoint", "epoch": 250, "ctm_loss": 0.055093904957175255, "pseudo_dsm_loss": 0.28344102017581463, "selection_loss": 0.08343800697475671}
+{"stage": "ctm", "method": "pca_multinoise_endpoint", "epoch": 275, "ctm_loss": 0.08973137754946947, "pseudo_dsm_loss": 0.39528629928827286, "selection_loss": 0.12926000747829675}
+{"stage": "ctm", "method": "pca_multinoise_endpoint", "epoch": 300, "ctm_loss": 0.04943750984966755, "pseudo_dsm_loss": 0.3463273737579584, "selection_loss": 0.08407024722546338}
+{"stage": "ctm", "method": "pca_multinoise_endpoint", "epoch": 325, "ctm_loss": 0.041677894070744514, "pseudo_dsm_loss": 0.2833799347281456, "selection_loss": 0.07001588754355907}
+{"stage": "ctm", "method": "pca_multinoise_endpoint", "epoch": 350, "ctm_loss": 0.047791247721761465, "pseudo_dsm_loss": 0.40720082074403763, "selection_loss": 0.08851132979616523}
+{"stage": "ctm", "method": "pca_multinoise_endpoint", "epoch": 375, "ctm_loss": 0.043315498158335686, "pseudo_dsm_loss": 0.3680722080171108, "selection_loss": 0.08012271896004677}
+{"stage": "ctm", "method": "pca_multinoise_endpoint", "epoch": 400, "ctm_loss": 0.06213106960058212, "pseudo_dsm_loss": 0.3426245376467705, "selection_loss": 0.09639352336525916}
+{"stage": "ctm", "method": "pca_multinoise_endpoint", "epoch": 425, "ctm_loss": 0.044951431453228, "pseudo_dsm_loss": 0.3272046409547329, "selection_loss": 0.0776718955487013}
+{"stage": "ctm", "method": "pca_multinoise_endpoint", "epoch": 450, "ctm_loss": 0.04213095922023058, "pseudo_dsm_loss": 0.16552501544356346, "selection_loss": 0.05868346076458693}
+{"stage": "ctm", "method": "pca_multinoise_endpoint", "epoch": 475, "ctm_loss": 0.036568449810147285, "pseudo_dsm_loss": 0.3008471466600895, "selection_loss": 0.06665316447615624}
+{
+  "method": "pca_multinoise_endpoint",
+  "student_architecture": {
+    "layers": 3,
+    "embed_dim": 48,
+    "heads": 3
+  },
+  "multi_noise": 4,
+  "endpoint_weight": 0.1,
+  "mode_balanced_sampling": false,
+  "stratified_multitime": false,
+  "initialization": {
+    "teacher_layers": [
+      0,
+      2,
+      3
+    ],
+    "explained_variance": 1.0,
+    "method": "pca",
+    "load_max_abs_diff": 0.0
+  },
+  "uses_original_demonstrations": false,
+  "uses_expert_actions": false,
+  "buffer": "logs/avoiding/teacher_generated_transfer/transfer_buffer.pt",
+  "structure_dynamic_pretraining": true,
+  "pretrain_epochs": 300,
+  "ctm_epochs": 500,
+  "best_epoch": 483,
+  "best_selection_loss": 0.05562627138569951
+}

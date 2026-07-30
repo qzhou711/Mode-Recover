@@ -1,0 +1,139 @@
+{"epoch": 0, "loss": 0.6506524682044983, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 25, "loss": 0.27810004353523254, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 50, "loss": 0.19768313318490982, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 75, "loss": 0.14016583934426308, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 100, "loss": 0.1461513377726078, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 125, "loss": 0.10808218456804752, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 150, "loss": 0.09406769834458828, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 175, "loss": 0.09176816791296005, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 200, "loss": 0.0860730167478323, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 225, "loss": 0.07663317210972309, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 250, "loss": 0.09112474508583546, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 275, "loss": 0.09914245922118425, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 300, "loss": 0.08191856183111668, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 325, "loss": 0.06264786794781685, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 350, "loss": 0.09508416801691055, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 375, "loss": 0.0868301447480917, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 400, "loss": 0.06717323418706656, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 425, "loss": 0.08953842800110579, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 450, "loss": 0.09683796018362045, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 475, "loss": 0.06245249882340431, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 0, "loss": 0.1264100968837738, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 25, "loss": 0.05267742555588484, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 50, "loss": 0.044162276200950146, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 75, "loss": 0.04176060110330582, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 100, "loss": 0.03917562495917082, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 125, "loss": 0.037783363834023476, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 150, "loss": 0.03545708395540714, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 175, "loss": 0.033989546820521355, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 200, "loss": 0.032486554235219955, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 225, "loss": 0.03461537882685661, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 250, "loss": 0.035699665546417236, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 275, "loss": 0.032528949435800314, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 300, "loss": 0.030556561890989542, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 325, "loss": 0.03315192833542824, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 350, "loss": 0.03307947516441345, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 375, "loss": 0.031375132501125336, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 400, "loss": 0.03338723164051771, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 425, "loss": 0.031348810996860266, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 450, "loss": 0.031276184134185314, "active_blocks": [0, 1, 2, 3]}
+{"epoch": 475, "loss": 0.03216438554227352, "active_blocks": [0, 1, 2, 3]}
+{
+  "method": "teacher_assistant",
+  "student_architecture": {
+    "layers": 3,
+    "embed_dim": 48,
+    "heads": 3
+  },
+  "initialization": {
+    "method": "teacher_assistant",
+    "assistant_initialization": {
+      "teacher_layers": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "selected_heads": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "selected_channels": [
+        1,
+        2,
+        3,
+        6,
+        7,
+        8,
+        10,
+        11,
+        13,
+        14,
+        15,
+        16,
+        18,
+        19,
+        20,
+        21,
+        25,
+        28,
+        29,
+        30,
+        31,
+        32,
+        34,
+        35,
+        36,
+        39,
+        40,
+        41,
+        43,
+        44,
+        46,
+        48,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        57,
+        58,
+        59,
+        61,
+        62,
+        64,
+        66,
+        67,
+        69,
+        71
+      ],
+      "method": "width",
+      "load_max_abs_diff": 0.0
+    },
+    "student_layer_map": [
+      0,
+      2,
+      3
+    ]
+  },
+  "stages": [
+    {
+      "source": "FM-4x72-16",
+      "target": "FM-4x48-16",
+      "epochs": 500,
+      "best_loss": 0.057128580287098885
+    },
+    {
+      "source": "FM-4x48-16",
+      "target": "FM-3x48-16",
+      "epochs": 500
+    }
+  ],
+  "best_selection_loss": 0.02938838629052043,
+  "uses_original_demonstrations": false,
+  "uses_expert_actions": false,
+  "buffer": "logs/avoiding/teacher_generated_transfer/transfer_buffer.pt"
+}

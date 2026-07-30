@@ -21,3 +21,42 @@
 {"stage": "ctm", "method": "pca_multinoise_endpoint", "epoch": 200, "ctm_loss": 0.05096886632964015, "pseudo_dsm_loss": 0.3396838568150997, "selection_loss": 0.08493725201115013}
 {"stage": "ctm", "method": "pca_multinoise_endpoint", "epoch": 225, "ctm_loss": 0.0493787694722414, "pseudo_dsm_loss": 0.23472140915691853, "selection_loss": 0.07285091038793326}
 {"stage": "ctm", "method": "pca_multinoise_endpoint", "epoch": 250, "ctm_loss": 0.05508618988096714, "pseudo_dsm_loss": 0.28282006457448006, "selection_loss": 0.08336819633841515}
+{"stage": "ctm", "method": "pca_multinoise_endpoint", "epoch": 275, "ctm_loss": 0.08711759047582746, "pseudo_dsm_loss": 0.40996047854423523, "selection_loss": 0.12811363833025097}
+{"stage": "ctm", "method": "pca_multinoise_endpoint", "epoch": 300, "ctm_loss": 0.04922522231936455, "pseudo_dsm_loss": 0.3454514145851135, "selection_loss": 0.0837703637778759}
+{"stage": "ctm", "method": "pca_multinoise_endpoint", "epoch": 325, "ctm_loss": 0.041876962408423424, "pseudo_dsm_loss": 0.28262530267238617, "selection_loss": 0.07013949267566204}
+{"stage": "ctm", "method": "pca_multinoise_endpoint", "epoch": 350, "ctm_loss": 0.046917194966226816, "pseudo_dsm_loss": 0.42045385390520096, "selection_loss": 0.08896258035674692}
+{"stage": "ctm", "method": "pca_multinoise_endpoint", "epoch": 375, "ctm_loss": 0.04320489754900336, "pseudo_dsm_loss": 0.3680845610797405, "selection_loss": 0.08001335365697743}
+{"stage": "ctm", "method": "pca_multinoise_endpoint", "epoch": 400, "ctm_loss": 0.06192327011376619, "pseudo_dsm_loss": 0.34200557321310043, "selection_loss": 0.09612382743507625}
+{"stage": "ctm", "method": "pca_multinoise_endpoint", "epoch": 425, "ctm_loss": 0.04473731014877558, "pseudo_dsm_loss": 0.3257799409329891, "selection_loss": 0.0773153042420745}
+{"stage": "ctm", "method": "pca_multinoise_endpoint", "epoch": 450, "ctm_loss": 0.042174904607236385, "pseudo_dsm_loss": 0.16550938412547112, "selection_loss": 0.058725843019783494}
+{"stage": "ctm", "method": "pca_multinoise_endpoint", "epoch": 475, "ctm_loss": 0.0364871546626091, "pseudo_dsm_loss": 0.3009052947163582, "selection_loss": 0.06657768413424492}
+{
+  "method": "pca_multinoise_endpoint",
+  "student_architecture": {
+    "layers": 3,
+    "embed_dim": 48,
+    "heads": 3
+  },
+  "multi_noise": 4,
+  "endpoint_weight": 0.03,
+  "mode_balanced_sampling": false,
+  "stratified_multitime": false,
+  "initialization": {
+    "teacher_layers": [
+      0,
+      2,
+      3
+    ],
+    "explained_variance": 1.0,
+    "method": "pca",
+    "load_max_abs_diff": 0.0
+  },
+  "uses_original_demonstrations": false,
+  "uses_expert_actions": false,
+  "buffer": "logs/avoiding/teacher_generated_transfer/transfer_buffer.pt",
+  "structure_dynamic_pretraining": true,
+  "pretrain_epochs": 300,
+  "ctm_epochs": 500,
+  "best_epoch": 483,
+  "best_selection_loss": 0.05572769930586219
+}

@@ -1,0 +1,104 @@
+{"stage": "ctm", "method": "early_multinoise_endpoint", "epoch": 0, "ctm_loss": 0.08666849881410599, "pseudo_dsm_loss": 0.4320412017405033, "selection_loss": 0.12987261898815633}
+{"stage": "ctm", "method": "early_multinoise_endpoint", "epoch": 25, "ctm_loss": 0.08919188659638166, "pseudo_dsm_loss": 0.42228061333298683, "selection_loss": 0.13141994792968034}
+{"stage": "ctm", "method": "early_multinoise_endpoint", "epoch": 50, "ctm_loss": 0.06999006494879723, "pseudo_dsm_loss": 0.4384431540966034, "selection_loss": 0.11383438035845757}
+{"stage": "ctm", "method": "early_multinoise_endpoint", "epoch": 75, "ctm_loss": 0.08023253828287125, "pseudo_dsm_loss": 0.335763867944479, "selection_loss": 0.11380892507731916}
+{"stage": "ctm", "method": "early_multinoise_endpoint", "epoch": 100, "ctm_loss": 0.09132106881588697, "pseudo_dsm_loss": 0.3764269780367613, "selection_loss": 0.1289637666195631}
+{"stage": "ctm", "method": "early_multinoise_endpoint", "epoch": 125, "ctm_loss": 0.0918937474489212, "pseudo_dsm_loss": 0.3959566541016102, "selection_loss": 0.13148941285908222}
+{"stage": "ctm", "method": "early_multinoise_endpoint", "epoch": 150, "ctm_loss": 0.07346978690475225, "pseudo_dsm_loss": 0.25178973749279976, "selection_loss": 0.09864876065403223}
+{"stage": "ctm", "method": "early_multinoise_endpoint", "epoch": 175, "ctm_loss": 0.055191378109157085, "pseudo_dsm_loss": 0.40132115595042706, "selection_loss": 0.09532349370419979}
+{"stage": "ctm", "method": "early_multinoise_endpoint", "epoch": 200, "ctm_loss": 0.04178938269615173, "pseudo_dsm_loss": 0.33237674459815025, "selection_loss": 0.07502705715596676}
+{"stage": "ctm", "method": "early_multinoise_endpoint", "epoch": 225, "ctm_loss": 0.06400374509394169, "pseudo_dsm_loss": 0.3989275246858597, "selection_loss": 0.10389649756252767}
+{"stage": "ctm", "method": "early_multinoise_endpoint", "epoch": 250, "ctm_loss": 0.043981019873172045, "pseudo_dsm_loss": 0.4716876372694969, "selection_loss": 0.09114978360012174}
+{"stage": "ctm", "method": "early_multinoise_endpoint", "epoch": 275, "ctm_loss": 0.05128067824989557, "pseudo_dsm_loss": 0.4224841371178627, "selection_loss": 0.09352909196168185}
+{"stage": "ctm", "method": "early_multinoise_endpoint", "epoch": 300, "ctm_loss": 0.03826733725145459, "pseudo_dsm_loss": 0.32648545131087303, "selection_loss": 0.0709158823825419}
+{"stage": "ctm", "method": "early_multinoise_endpoint", "epoch": 325, "ctm_loss": 0.04246517224237323, "pseudo_dsm_loss": 0.28548211231827736, "selection_loss": 0.07101338347420097}
+{"stage": "ctm", "method": "early_multinoise_endpoint", "epoch": 350, "ctm_loss": 0.057667228393256664, "pseudo_dsm_loss": 0.3114110678434372, "selection_loss": 0.08880833517760038}
+{"stage": "ctm", "method": "early_multinoise_endpoint", "epoch": 375, "ctm_loss": 0.06124215153977275, "pseudo_dsm_loss": 0.37486499547958374, "selection_loss": 0.09872865108773113}
+{"stage": "ctm", "method": "early_multinoise_endpoint", "epoch": 400, "ctm_loss": 0.04652453167364001, "pseudo_dsm_loss": 0.3327617198228836, "selection_loss": 0.07980070365592837}
+{"stage": "ctm", "method": "early_multinoise_endpoint", "epoch": 425, "ctm_loss": 0.046510196290910244, "pseudo_dsm_loss": 0.23393066599965096, "selection_loss": 0.06990326289087534}
+{"stage": "ctm", "method": "early_multinoise_endpoint", "epoch": 450, "ctm_loss": 0.05220396723598242, "pseudo_dsm_loss": 0.2800376582890749, "selection_loss": 0.0802077330648899}
+{"stage": "ctm", "method": "early_multinoise_endpoint", "epoch": 475, "ctm_loss": 0.07818379206582904, "pseudo_dsm_loss": 0.4078531563282013, "selection_loss": 0.11896910769864917}
+{
+  "method": "early_multinoise_endpoint",
+  "student_architecture": {
+    "layers": 3,
+    "embed_dim": 48,
+    "heads": 3
+  },
+  "multi_noise": 4,
+  "endpoint_weight": 0.03,
+  "mode_balanced_sampling": false,
+  "stratified_multitime": false,
+  "initialization": {
+    "teacher_layers": [
+      0,
+      1,
+      2
+    ],
+    "selected_heads": [
+      0,
+      1,
+      2
+    ],
+    "selected_channels": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      6,
+      7,
+      8,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      25,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40,
+      41,
+      42,
+      43,
+      44,
+      46,
+      47,
+      48,
+      50,
+      51,
+      52,
+      53
+    ],
+    "method": "early",
+    "load_max_abs_diff": 0.0
+  },
+  "uses_original_demonstrations": false,
+  "uses_expert_actions": false,
+  "buffer": "logs/avoiding/teacher_generated_transfer/transfer_buffer.pt",
+  "structure_dynamic_pretraining": false,
+  "pretrain_epochs": 0,
+  "ctm_epochs": 500,
+  "best_epoch": 354,
+  "best_selection_loss": 0.055544587038457396
+}

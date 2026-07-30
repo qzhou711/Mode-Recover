@@ -1,0 +1,104 @@
+{"stage": "ctm", "method": "minilmv2_relation", "epoch": 0, "ctm_loss": 0.052950261160731316, "pseudo_dsm_loss": 0.2579345218837261, "selection_loss": 0.07874371334910393}
+{"stage": "ctm", "method": "minilmv2_relation", "epoch": 25, "ctm_loss": 0.06253595184534788, "pseudo_dsm_loss": 0.2600964307785034, "selection_loss": 0.08854559492319822}
+{"stage": "ctm", "method": "minilmv2_relation", "epoch": 50, "ctm_loss": 0.04841063870117068, "pseudo_dsm_loss": 0.29482097551226616, "selection_loss": 0.0778927362523973}
+{"stage": "ctm", "method": "minilmv2_relation", "epoch": 75, "ctm_loss": 0.07026117760688066, "pseudo_dsm_loss": 0.22157007083296776, "selection_loss": 0.09241818469017744}
+{"stage": "ctm", "method": "minilmv2_relation", "epoch": 100, "ctm_loss": 0.08120408933609724, "pseudo_dsm_loss": 0.24854019097983837, "selection_loss": 0.10605810843408107}
+{"stage": "ctm", "method": "minilmv2_relation", "epoch": 125, "ctm_loss": 0.08243078924715519, "pseudo_dsm_loss": 0.26626522839069366, "selection_loss": 0.10905731208622456}
+{"stage": "ctm", "method": "minilmv2_relation", "epoch": 150, "ctm_loss": 0.06798736797645688, "pseudo_dsm_loss": 0.17404219135642052, "selection_loss": 0.08539158711209893}
+{"stage": "ctm", "method": "minilmv2_relation", "epoch": 175, "ctm_loss": 0.04228551918640733, "pseudo_dsm_loss": 0.2738820016384125, "selection_loss": 0.06967371935024858}
+{"stage": "ctm", "method": "minilmv2_relation", "epoch": 200, "ctm_loss": 0.03560187644325197, "pseudo_dsm_loss": 0.24335065111517906, "selection_loss": 0.059936941554769876}
+{"stage": "ctm", "method": "minilmv2_relation", "epoch": 225, "ctm_loss": 0.05886686220765114, "pseudo_dsm_loss": 0.28181056678295135, "selection_loss": 0.08704791888594628}
+{"stage": "ctm", "method": "minilmv2_relation", "epoch": 250, "ctm_loss": 0.03267936920747161, "pseudo_dsm_loss": 0.3107641115784645, "selection_loss": 0.06375578036531807}
+{"stage": "ctm", "method": "minilmv2_relation", "epoch": 275, "ctm_loss": 0.042689529014751315, "pseudo_dsm_loss": 0.27157955430448055, "selection_loss": 0.06984748444519936}
+{"stage": "ctm", "method": "minilmv2_relation", "epoch": 300, "ctm_loss": 0.03222801350057125, "pseudo_dsm_loss": 0.24456096813082695, "selection_loss": 0.056684110313653946}
+{"stage": "ctm", "method": "minilmv2_relation", "epoch": 325, "ctm_loss": 0.03941274946555495, "pseudo_dsm_loss": 0.23111094161868095, "selection_loss": 0.06252384362742305}
+{"stage": "ctm", "method": "minilmv2_relation", "epoch": 350, "ctm_loss": 0.054423656314611435, "pseudo_dsm_loss": 0.22705439291894436, "selection_loss": 0.07712909560650587}
+{"stage": "ctm", "method": "minilmv2_relation", "epoch": 375, "ctm_loss": 0.054887716891244054, "pseudo_dsm_loss": 0.2684628777205944, "selection_loss": 0.0817340046633035}
+{"stage": "ctm", "method": "minilmv2_relation", "epoch": 400, "ctm_loss": 0.042179354932159185, "pseudo_dsm_loss": 0.24592194706201553, "selection_loss": 0.06677154963836074}
+{"stage": "ctm", "method": "minilmv2_relation", "epoch": 425, "ctm_loss": 0.04406601982191205, "pseudo_dsm_loss": 0.18858832865953445, "selection_loss": 0.06292485268786549}
+{"stage": "ctm", "method": "minilmv2_relation", "epoch": 450, "ctm_loss": 0.04254211485385895, "pseudo_dsm_loss": 0.20068778842687607, "selection_loss": 0.06261089369654656}
+{"stage": "ctm", "method": "minilmv2_relation", "epoch": 475, "ctm_loss": 0.0759361123200506, "pseudo_dsm_loss": 0.29747340455651283, "selection_loss": 0.10568345277570187}
+{
+  "method": "minilmv2_relation",
+  "student_architecture": {
+    "layers": 3,
+    "embed_dim": 48,
+    "heads": 3
+  },
+  "multi_noise": 1,
+  "endpoint_weight": 0.0,
+  "mode_balanced_sampling": false,
+  "stratified_multitime": false,
+  "initialization": {
+    "teacher_layers": [
+      0,
+      1,
+      2
+    ],
+    "selected_heads": [
+      0,
+      1,
+      2
+    ],
+    "selected_channels": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      6,
+      7,
+      8,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      25,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      39,
+      40,
+      41,
+      42,
+      43,
+      44,
+      46,
+      47,
+      48,
+      50,
+      51,
+      52,
+      53
+    ],
+    "method": "early",
+    "load_max_abs_diff": 0.0
+  },
+  "uses_original_demonstrations": false,
+  "uses_expert_actions": false,
+  "buffer": "logs/avoiding/teacher_generated_transfer/transfer_buffer.pt",
+  "structure_dynamic_pretraining": false,
+  "pretrain_epochs": 0,
+  "ctm_epochs": 500,
+  "best_epoch": 499,
+  "best_selection_loss": 0.044157658237963915
+}
