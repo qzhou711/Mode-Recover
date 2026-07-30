@@ -98,6 +98,13 @@ CTM对Repair不足的student可同时提高SR和覆盖；当Repair较充分时�
 
 CTM恢复54.2个SR百分点，但丢失8种模式，熵降低0.484。这说明Repair阶段获得的多模态关系没有被当前CTM链路保留；CTM将策略集中到少数闭环安全路径。该结果比只观察最终1步策略更清楚地定位了collapse发生位置。
 
+轨迹：
+
+- CTM前：`logs/avoiding/teacher_generated_structure_wave2_1000/minilmv2_relation/eval120/trajectory_comparison.png`
+- CTM后：`logs/avoiding/teacher_generated_minilmv2_followup/minilm1000_ctm500/eval120/trajectory_comparison.png`
+
+该对照目前是论文主线中最直接的mode-collapse实例：同一Repair checkpoint经过步数蒸馏后，闭环成功率显著提高，但随机噪声对应的多条可行路径被压缩为少数安全路径。下一步应比较300与2000轮MiniLMv2 checkpoint接相同CTM，判断CTM输出多样性是否受输入Repair分布影响，并在CTM中加入弱跨噪声关系保持。
+
 ## 9. 当前研究问题
 
 最终目标不是单独寻找最高SR的CTM，而是回答：
