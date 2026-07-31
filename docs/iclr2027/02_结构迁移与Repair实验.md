@@ -1,8 +1,8 @@
-# 结构迁移与Repair实验
+# 结构蒸馏（二）：结构迁移与Repair实验
 
 ## 1. 文档边界
 
-Repair指结构初始化之后、步数蒸馏之前的功能恢复。当前统一保持16步推理，目标是使压缩student恢复teacher的速度场、内部关系和`noise→mode`映射。
+结构蒸馏由“结构初始化＋功能Repair”组成。Repair指结构初始化之后、步数蒸馏之前的功能恢复；当前统一保持16步推理，目标是使压缩Student恢复Teacher的速度场、内部关系和`noise→mode`映射。当前Repair包含Teacher监督训练，因此不能简化描述为剪枝。
 
 ## 2. 数据假设
 
@@ -349,13 +349,26 @@ Standard-480下Velocity提高5.4个SR百分点、保持22种模式，熵仅下�
 
 为确认500轮以后是否存在第二个性能上升区间，使用两张GPU从相同MiniLMv2-6000起点分别训练seed 42/43至1000轮，统一采用1000轮cosine计划，保存并评估750与1000轮。由于旧500轮实验没有optimizer/scheduler状态，本实验从头训练，不能与旧500轮曲线视作无缝续接；seed 42用于主比较，seed 43用于判断趋势稳定性。
 
+Standard-120结果：
+
+| 训练seed | Epoch | SR | 覆盖 | 熵 |
+|---:|---:|---:|---:|---:|
+| 42 | 750 | 68.3% | 18 | 0.796 |
+| 42 | 1000 | 62.5% | 17 | 0.773 |
+| 43 | 750 | 64.2% | 19 | 0.803 |
+| 43 | 1000 | 62.5% | 17 | 0.773 |
+
+750/1000均未超过500轮计划中的Velocity-250：`70.8%/20/H=0.810`。两个seed在1000轮都退化到`62.5%/17/H=0.773`，说明继续延长当前Repair不会产生稳定收益。按照预设决策边界，停止追加单纯epoch，固定Velocity-250进入mode-preserving CTM。
+
 ### P1：Repair严格确认
 
-- [ ] 对Pareto候选补Standard-480；
-- [ ] 与冻结MiniLMv2-6000在完全相同episode/seed下比较；
+- [x] 对Pareto候选补Standard-480；
+- [x] 与冻结MiniLMv2-6000在完全相同episode/seed下比较；
 - [ ] 补至少两个额外训练seed；
 - [ ] 统计每种mode的频次与条件成功率，判断Velocity是否只强化高频模式；
-- [ ] 保存成功/失败异色轨迹图。
+- [x] 保存成功/失败异色轨迹图。
+
+已完成项对应Velocity-250 Standard-480：`303/480，63.1%/22/H=0.836`；冻结MiniLMv2-6000为`277/480，57.7%/22/H=0.845`。轨迹图位于`logs/avoiding/teacher_generated_minilmv2_velocity_followup/epoch250_eval480/eval480/trajectory_comparison.png`。
 
 ### P2：Mode-preserving CTM
 

@@ -4,8 +4,9 @@ from pathlib import Path
 import numpy as np,torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader,TensorDataset,WeightedRandomSampler
-from agents.models.flow_matching.ctm import ctm_paths,pseudo_huber,freeze,update_ema
+from agents.models.flow_matching.ctm import centered_gram_loss,ctm_paths,pseudo_huber,freeze,update_ema
 from agents.models.diffusion.ema import ExponentialMovingAverage
+from environments.dataset.avoiding_dataset import Avoiding_Dataset
 from teacher_flow_deployment import build_flow,load_deployed_teacher
 from train_flow_progressive_compression import initialize_student,selection_basis
 
@@ -89,9 +90,38 @@ def differentiable_integrate(model,x,state,steps=16,start_time=0.0,end_time=1.0)
             x=x+0.5*dt*(velocity+next_velocity)
     return x
 
+def demonstration_dataset(data_dir,metadata):
+    """Load the original expert windows using the deployed teacher's scaling."""
+    raw=Avoiding_Dataset(data_dir,device='cpu',obs_dim=4,action_dim=2,max_len_data=200,window_size=5)
+    states=[];actions=[]
+    for trajectory,start,end in raw.slices:
+        states.append(raw.observations[trajectory,start:end])
+        actions.append(raw.actions[trajectory,start:end])
+    states=torch.stack(states).float();actions=torch.stack(actions).float()
+    states=(states-metadata['x_mean'].cpu())/(metadata['x_std'].cpu()+1e-12)
+    actions=(actions-metadata['y_mean'].cpu())/(metadata['y_std'].cpu()+1e-12)
+    return TensorDataset(states.float(),torch.zeros_like(actions),actions.float())
+
+def make_ctm_loader(rollout_dataset,demo_dataset,source,batch_size,seed):
+    if source=='rollout':
+        return DataLoader(rollout_dataset,batch_size=batch_size,shuffle=True,num_workers=0,drop_last=True)
+    if source=='demonstration':
+        return DataLoader(demo_dataset,batch_size=batch_size,shuffle=True,num_workers=0,drop_last=True)
+    states=torch.cat((rollout_dataset.tensors[0],demo_dataset.tensors[0]))
+    noises=torch.cat((rollout_dataset.tensors[1],demo_dataset.tensors[1]))
+    actions=torch.cat((rollout_dataset.tensors[2].float(),demo_dataset.tensors[2]))
+    combined=TensorDataset(states,noises,actions)
+    n_rollout=len(rollout_dataset);n_demo=len(demo_dataset)
+    weights=torch.cat((torch.full((n_rollout,),0.5/n_rollout),torch.full((n_demo,),0.5/n_demo)))
+    generator=torch.Generator().manual_seed(seed)
+    sampler=WeightedRandomSampler(weights,n_rollout+n_demo,replacement=True,generator=generator)
+    return DataLoader(combined,batch_size=batch_size,sampler=sampler,num_workers=0,drop_last=True)
+
 def main():
     p=argparse.ArgumentParser();p.add_argument('--bundle-dir',type=Path,required=True);p.add_argument('--buffer',type=Path,required=True);p.add_argument('--output-dir',type=Path,required=True)
-    p.add_argument('--method',choices=['activation_dynamic','pca_dynamic','early_dynamic','width_dynamic','pca_multinoise_endpoint','pca_balanced_multitime','pca_combined','early_multinoise_endpoint','early_combined','width_multinoise_endpoint','width_combined','attention_relation','minilmv2_relation','minilmv2_multinoise_relation'],required=True);p.add_argument('--pretrain-epochs',type=int,default=300);p.add_argument('--ctm-epochs',type=int,default=500);p.add_argument('--batch-size',type=int,default=256);p.add_argument('--max-batches',type=int,default=4);p.add_argument('--learning-rate',type=float,default=1e-4);p.add_argument('--multi-noise',type=int,default=4);p.add_argument('--cross-noise-weight',type=float,default=1.0);p.add_argument('--relation-velocity-weight',type=float,default=.1);p.add_argument('--velocity-ramp-epochs',type=int,default=0);p.add_argument('--mode-balanced-sampling',action='store_true');p.add_argument('--relation-endpoint-weight',type=float,default=0.0);p.add_argument('--student-induced-weight',type=float,default=0.0);p.add_argument('--endpoint-steps',type=int,default=16);p.add_argument('--endpoint-weight',type=float,default=.1);p.add_argument('--save-pretrain-epochs',type=str,default='');p.add_argument('--pretrain-only',action='store_true');p.add_argument('--initialization-only',action='store_true');p.add_argument('--initial-structure',type=Path,default=None);p.add_argument('--pretrained-structure',type=Path,default=None);p.add_argument('--seed',type=int,default=42);a=p.parse_args()
+    p.add_argument('--method',choices=['activation_dynamic','pca_dynamic','early_dynamic','width_dynamic','pca_multinoise_endpoint','pca_balanced_multitime','pca_combined','early_multinoise_endpoint','early_combined','width_multinoise_endpoint','width_combined','attention_relation','minilmv2_relation','minilmv2_multinoise_relation'],required=True);p.add_argument('--pretrain-epochs',type=int,default=300);p.add_argument('--ctm-epochs',type=int,default=500);p.add_argument('--batch-size',type=int,default=256);p.add_argument('--max-batches',type=int,default=4);p.add_argument('--learning-rate',type=float,default=1e-4);p.add_argument('--multi-noise',type=int,default=4);p.add_argument('--cross-noise-weight',type=float,default=1.0);p.add_argument('--relation-velocity-weight',type=float,default=.1);p.add_argument('--velocity-ramp-epochs',type=int,default=0);p.add_argument('--mode-balanced-sampling',action='store_true');p.add_argument('--relation-endpoint-weight',type=float,default=0.0);p.add_argument('--student-induced-weight',type=float,default=0.0);p.add_argument('--endpoint-steps',type=int,default=16);p.add_argument('--endpoint-weight',type=float,default=.1);p.add_argument('--save-pretrain-epochs',type=str,default='');p.add_argument('--ctm-dsm-weight',type=float,default=.1);p.add_argument('--ctm-endpoint-anchor-weight',type=float,default=0.0);p.add_argument('--ctm-mode-weight',type=float,default=0.0);p.add_argument('--ctm-conditional-samples',type=int,default=4);p.add_argument('--save-ctm-epochs',type=str,default='');p.add_argument('--ctm-data-source',choices=['rollout','demonstration','mixed'],default='rollout');p.add_argument('--demonstration-dir',type=Path,default=Path('environments/dataset/data/avoiding/data'));p.add_argument('--pretrain-only',action='store_true');p.add_argument('--initialization-only',action='store_true');p.add_argument('--initial-structure',type=Path,default=None);p.add_argument('--pretrained-structure',type=Path,default=None);p.add_argument('--seed',type=int,default=42);a=p.parse_args()
+    if a.ctm_conditional_samples < 2 and a.ctm_mode_weight > 0:
+        p.error('--ctm-conditional-samples must be at least 2 when --ctm-mode-weight > 0')
     torch.manual_seed(a.seed);np.random.seed(a.seed);a.output_dir.mkdir(parents=True,exist_ok=True)
     data=torch.load(a.buffer,map_location='cpu'); assert not data['metadata']['uses_original_demonstrations']; assert not data['metadata']['uses_expert_actions']
     states=data['states'].float(); source_noises=data['noises'].float(); pseudo_actions=data['teacher_endpoints'].float()
@@ -102,6 +132,8 @@ def main():
         _,inverse,counts=torch.unique(sample_codes,return_inverse=True,return_counts=True);weights=counts[inverse].float().reciprocal();sampler=WeightedRandomSampler(weights,len(weights),replacement=True)
     loader=DataLoader(dataset,batch_size=a.batch_size,shuffle=sampler is None,sampler=sampler,num_workers=0,drop_last=True)
     teacher,_,meta=load_deployed_teacher(a.bundle_dir);layers,heads=(4,4) if a.method.startswith('width') else (3,3);student=build_flow(layers,48,heads,'cuda',16).train()
+    demo_dataset=demonstration_dataset(a.demonstration_dir,meta) if a.ctm_data_source!='rollout' else None
+    ctm_loader=make_ctm_loader(dataset,demo_dataset,a.ctm_data_source,a.batch_size,a.seed)
     acts=activation_matrix(teacher,states,source_noises,8,a.batch_size)
     relation_method=a.method in {'attention_relation','minilmv2_relation','minilmv2_multinoise_relation'}
     full_minilm=a.method in {'minilmv2_relation','minilmv2_multinoise_relation'}
@@ -113,7 +145,9 @@ def main():
         initialization['continued_from']=str(a.initial_structure)
     torch.save(student.state_dict(),a.output_dir/'initial_flow.pth')
     if a.initialization_only: torch.save(student.state_dict(),a.output_dir/'eval_best_flow.pth');(a.output_dir/'metrics.json').write_text(json.dumps({'method':a.method,'initialization':initialization,'uses_original_demonstrations':False,'uses_expert_actions':False},indent=2));return
-    if a.pretrained_structure is not None: student.load_state_dict(torch.load(a.pretrained_structure,map_location='cuda'),strict=True)
+    if a.pretrained_structure is not None:
+        student.load_state_dict(torch.load(a.pretrained_structure,map_location='cuda'),strict=True)
+        initialization['pretrained_structure']=str(a.pretrained_structure)
     milestones={int(x) for x in a.save_pretrain_epochs.split(',') if x};dynamic=a.pretrained_structure is None; prehistory=[]
     if dynamic:
         opt=torch.optim.Adam(student.get_params(),lr=a.learning_rate); sched=torch.optim.lr_scheduler.CosineAnnealingLR(opt,a.pretrain_epochs,eta_min=1e-6); ema=ExponentialMovingAverage(student.get_params(),0.995,'cuda'); best=math.inf
@@ -159,18 +193,34 @@ def main():
     else: torch.save(student.state_dict(),a.output_dir/'structure_best_flow.pth')
     if a.pretrain_only:
         (a.output_dir/'pretrain_metrics.json').write_text(json.dumps({'method':a.method,'milestones':sorted(milestones),'relation_velocity_weight':a.relation_velocity_weight,'velocity_ramp_epochs':a.velocity_ramp_epochs,'mode_balanced_sampling':a.mode_balanced_sampling,'pretrain_history':prehistory,'uses_original_demonstrations':False,'uses_expert_actions':False},indent=2));return
-    student.solver_steps=1;target=freeze(copy.deepcopy(student));student.train();opt=torch.optim.Adam(student.get_params(),lr=1e-4);sched=torch.optim.lr_scheduler.CosineAnnealingLR(opt,a.ctm_epochs,eta_min=1e-6);best=math.inf;best_epoch=-1;history=[]
+    student.solver_steps=1;target=freeze(copy.deepcopy(student));student.train();opt=torch.optim.Adam(student.get_params(),lr=1e-4);sched=torch.optim.lr_scheduler.CosineAnnealingLR(opt,a.ctm_epochs,eta_min=1e-6);best=math.inf;best_epoch=-1;history=[];ctm_milestones={int(x) for x in a.save_ctm_epochs.split(',') if x}
     for epoch in range(a.ctm_epochs):
-        cv=[];dv=[]
-        for bi,(state,_stored_noise,action) in enumerate(loader):
+        cv=[];dv=[];av=[];mv=[]
+        for bi,(state,_stored_noise,action) in enumerate(ctm_loader):
             if bi>=a.max_batches: break
             state=state.cuda();action=action.cuda();noise=torch.randn_like(action);ti=int(torch.randint(0,15,()).item());si=int(torch.randint(ti+2,17,()).item())
             prediction,reference,x_t,t=ctm_paths(student,target,teacher,action,state,noise,(ti,si),16);cl=pseudo_huber(prediction,reference,.01);one=torch.ones_like(t);den=student.boundary_transition(x_t,t,one,state);dl=pseudo_huber(den,action,.01);loss=cl+.1*dl
+            anchor_loss=den.sum()*0.0
+            if a.ctm_endpoint_anchor_weight>0:
+                zeros=torch.zeros_like(t);student_endpoint=student.boundary_transition(noise,zeros,one,state)
+                with torch.no_grad(): teacher_endpoint=teacher.integrate(noise,state,start_time=0.0,end_time=1.0,steps=16)
+                anchor_loss=pseudo_huber(student_endpoint,teacher_endpoint,.01)
+            mode_loss=den.sum()*0.0
+            if a.ctm_mode_weight>0:
+                k=a.ctm_conditional_samples;base=max(1,len(state)//k);mode_state=state[:base].repeat_interleave(k,0);mode_noise=torch.randn(base*k,*noise.shape[1:],device=noise.device,dtype=noise.dtype);zeros=torch.zeros(base*k,device=noise.device,dtype=noise.dtype);ones=torch.ones_like(zeros)
+                student_endpoints=student.boundary_transition(mode_noise,zeros,ones,mode_state)
+                with torch.no_grad(): teacher_endpoints=teacher.integrate(mode_noise,mode_state,start_time=0.0,end_time=1.0,steps=16)
+                mode_loss=centered_gram_loss(student_endpoints,teacher_endpoints,k)
+            loss=cl+a.ctm_dsm_weight*dl+a.ctm_endpoint_anchor_weight*anchor_loss+a.ctm_mode_weight*mode_loss
             opt.zero_grad(set_to_none=True);loss.backward();torch.nn.utils.clip_grad_norm_(student.get_params(),1);opt.step();update_ema(target,student,.995);cv.append(float(cl.detach()));dv.append(float(dl.detach()))
-        sched.step();score=float(np.mean(cv)+.1*np.mean(dv));rec={'epoch':epoch,'ctm_loss':float(np.mean(cv)),'pseudo_dsm_loss':float(np.mean(dv)),'selection_loss':score};history.append(rec)
+            av.append(float(anchor_loss.detach()));mv.append(float(mode_loss.detach()))
+        sched.step();score=float(np.mean(cv)+a.ctm_dsm_weight*np.mean(dv)+a.ctm_endpoint_anchor_weight*np.mean(av)+a.ctm_mode_weight*np.mean(mv));rec={'epoch':epoch,'ctm_loss':float(np.mean(cv)),'pseudo_dsm_loss':float(np.mean(dv)),'endpoint_anchor_loss':float(np.mean(av)),'mode_gram_loss':float(np.mean(mv)),'selection_loss':score};history.append(rec)
         if score<best:best=score;best_epoch=epoch;torch.save(target.state_dict(),a.output_dir/'eval_best_flow.pth')
+        if epoch+1 in ctm_milestones:
+            checkpoint_dir=a.output_dir/'checkpoints'/f'epoch_{epoch+1:04d}';checkpoint_dir.mkdir(parents=True,exist_ok=True);torch.save(target.state_dict(),checkpoint_dir/'eval_best_flow.pth')
         if epoch%25==0:print(json.dumps({'stage':'ctm','method':a.method,**rec}),flush=True)
     torch.save(target.state_dict(),a.output_dir/'last_flow.pth')
-    summary={'method':a.method,'student_architecture':{'layers':layers,'embed_dim':48,'heads':heads},'multi_noise':a.multi_noise if ('multinoise_endpoint' in a.method or 'combined' in a.method) else 1,'endpoint_weight':a.endpoint_weight if ('multinoise_endpoint' in a.method or 'combined' in a.method) else 0.0,'mode_balanced_sampling':('balanced_multitime' in a.method or 'combined' in a.method),'stratified_multitime':('balanced_multitime' in a.method or 'combined' in a.method),'initialization':initialization,'uses_original_demonstrations':False,'uses_expert_actions':False,'buffer':str(a.buffer),'structure_dynamic_pretraining':dynamic,'pretrain_epochs':a.pretrain_epochs if dynamic else 0,'ctm_epochs':a.ctm_epochs,'best_epoch':best_epoch,'best_selection_loss':best,'pretrain_history':prehistory,'ctm_history':history}
+    uses_demo=a.ctm_data_source!='rollout'
+    summary={'method':a.method,'experiment_label':'demonstration_assisted_ctm_oracle' if uses_demo else 'demonstration_free_ctm','demonstration_free':not uses_demo,'ctm_data_source':a.ctm_data_source,'demonstration_mixture_probability':0.5 if a.ctm_data_source=='mixed' else 1.0 if a.ctm_data_source=='demonstration' else 0.0,'student_architecture':{'layers':layers,'embed_dim':48,'heads':heads},'multi_noise':a.multi_noise if ('multinoise_endpoint' in a.method or 'combined' in a.method) else 1,'endpoint_weight':a.endpoint_weight if ('multinoise_endpoint' in a.method or 'combined' in a.method) else 0.0,'mode_balanced_sampling':('balanced_multitime' in a.method or 'combined' in a.method),'stratified_multitime':('balanced_multitime' in a.method or 'combined' in a.method),'initialization':initialization,'uses_original_demonstrations':uses_demo,'uses_expert_actions':uses_demo,'demonstration_dir':str(a.demonstration_dir) if uses_demo else None,'buffer':str(a.buffer),'structure_dynamic_pretraining':dynamic,'pretrain_epochs':a.pretrain_epochs if dynamic else 0,'ctm_epochs':a.ctm_epochs,'ctm_dsm_weight':a.ctm_dsm_weight,'ctm_endpoint_anchor_weight':a.ctm_endpoint_anchor_weight,'ctm_mode_weight':a.ctm_mode_weight,'ctm_conditional_samples':a.ctm_conditional_samples,'ctm_milestones':sorted(ctm_milestones),'best_epoch':best_epoch,'best_selection_loss':best,'pretrain_history':prehistory,'ctm_history':history}
     (a.output_dir/'metrics.json').write_text(json.dumps(summary,indent=2));print(json.dumps({k:v for k,v in summary.items() if not k.endswith('history')},indent=2))
 if __name__=='__main__':main()

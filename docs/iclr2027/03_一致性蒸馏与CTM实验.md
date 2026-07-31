@@ -1,4 +1,4 @@
-# 一致性蒸馏与CTM实验
+# 步数蒸馏：一致性蒸馏与CTM实验
 
 ## 1. 文档边界
 
@@ -167,3 +167,142 @@ L_mode = MSE(
 ```
 
 Endpoint anchor保持逐噪声身份对应，Gram保持一组噪声结果的相对几何。训练500 epochs，保存100/250/500并做Standard-120。首轮目标为`SR≥65%、Coverage≥18、H≥0.70`；通过者补Standard-480、Paired-1000/JS和至少两个额外seed。
+
+执行状态：
+
+- [x] 以Velocity-250作为统一16步Repair起点；
+- [x] Flow-CTM＋DSM基线；
+- [x] CTM＋DSM＋弱teacher endpoint anchor；
+- [x] CTM＋DSM＋同状态K=4输出Gram；
+- [x] endpoint与Gram组合；
+- [x] 各组100/250/500 checkpoint的Standard-120；
+- [ ] 候选Standard-480；
+- [ ] Paired-1000/JS与多seed。
+
+注意：此前3500/6000 MiniLMv2起点的CTM实验已完成并定位了collapse，但不能替代上述实验；新的TODO要求固定当前最佳Velocity-250起点，验证约束能否在更高SR Repair基础上保留模式。
+
+### 11.1 四因子首轮结果
+
+Standard-120：
+
+| 方法 | 最佳筛选epoch | SR | 覆盖 | 熵 |
+|---|---:|---:|---:|---:|
+| Flow-CTM＋DSM | 250 | **77.5%** | 8/24 | 0.390 |
+| CTM＋DSM＋Endpoint | 100 | 69.2% | 9/24 | 0.375 |
+| CTM＋DSM＋Gram | 250 | 73.3% | 9/24 | 0.396 |
+| CTM＋DSM＋Endpoint＋Gram | 100 | 70.8% | 8/24 | 0.394 |
+
+若只看首轮多样性，Gram-100为`66.7%/10/H=0.485`。Gram最多挽回约2种模式，Endpoint没有改善当前CTM，组合也未显示互补性；四组都没有达到`Coverage≥18、H≥0.70`。因此弱输出几何正则不足以阻止一步CTM压缩已经由Repair恢复的多模态分布。
+
+运行目录：`logs/avoiding/velocity250_mode_ctm/`。
+
+## 12. Demonstration-assisted CTM oracle
+
+### 12.1 目的与边界
+
+该实验用于区分两种解释：
+
+1. Teacher rollout buffer没有充分覆盖原始状态—动作分布；
+2. CTM目标、有限容量表示或一步优化本身压缩模式。
+
+两组均从相同Velocity-250 Repair checkpoint出发，使用Flow-CTM＋DSM=0.1、seed 42、500 epochs，并评估100/250/500 checkpoint。区别只在CTM训练数据：
+
+- `demonstration_only`：100%原始示范状态与专家action chunk；
+- `rollout_demo_50_50`：Teacher rollout和原始示范等权采样。
+
+示范窗口使用Teacher部署包中的统计量归一化；CTM trajectory target仍由Teacher产生。该实验明确属于`Demonstration-assisted CTM oracle`：
+
+```text
+demonstration_free: false
+uses_original_demonstrations: true
+uses_expert_actions: true
+```
+
+它是数据上界和因果诊断，不是最终demonstration-free方法。
+
+### 12.2 Standard-120结果
+
+| CTM训练数据 | Epoch | SR | 覆盖 | 熵 |
+|---|---:|---:|---:|---:|
+| Teacher rollout only基线 | 100 | 70.8% | 8/24 | 0.487 |
+| Teacher rollout only基线 | 250 | 77.5% | 8/24 | 0.390 |
+| 100% Demonstration | 100 | 78.3% | **12/24** | 0.533 |
+| 100% Demonstration | 250 | **81.7%** | 11/24 | 0.350 |
+| 100% Demonstration | 500 | 60.8% | 9/24 | 0.473 |
+| 50% Rollout＋50% Demonstration | 100 | 80.0% | 11/24 | **0.538** |
+| 50% Rollout＋50% Demonstration | 250 | 80.8% | 9/24 | 0.352 |
+| 50% Rollout＋50% Demonstration | 500 | 65.8% | 7/24 | 0.418 |
+
+运行目录：`logs/avoiding/demonstration_assisted_ctm_oracle/`。
+
+评估目录中的通用`metrics.json`字段`uses_original_demonstrations:false`描述评估过程本身，不代表模型训练来源；训练来源以各模型目录的`model/metrics.json`为准，其中已明确记录`demonstration_free:false`。后续汇总工具应区分`training_data_provenance`与`evaluation_data_provenance`，避免误读。
+
+### 12.3 结论
+
+1. 原始示范确实缓解collapse。epoch 100时，纯Demo相对rollout-only实现`SR +7.5pp、覆盖 +4、H +0.046`；
+2. Mixed-100达到更高SR和本组最高熵，但覆盖略低于纯Demo，说明真实示范状态和Teacher闭环状态具有一定互补性；
+3. 训练到250/500后覆盖和熵重新下降，离线loss最佳epoch也不是闭环多样性最佳epoch，继续证明必须按SR—Coverage—H选择checkpoint；
+4. 最佳结果仍只有12/24，远低于Velocity-250 Repair起点的22/24。数据覆盖不足是mode collapse的一个原因，但不是全部原因；
+5. CTM自举目标、一步函数的优化偏置以及跨结构Student尚不完善的表示基底，仍会把概率质量集中到少数易拟合、闭环成功率高的路径。
+
+本实验形成一个重要诊断：
+
+> 原始示范能把跨规模一步CTM的多样性从8种提高到约11–12种，但不能恢复Repair阶段的22种模式；因此后续demonstration-free方案既要改善Teacher-query覆盖，也必须改变一步分布蒸馏目标。
+
+## 13. 为什么同规模蒸馏容易保留mode，而跨规模容易collapse
+
+### 13.1 当前对比不是单一“容量”变量
+
+同规模/Full-student warm start：
+
+- `FM-3x48-16-Full`先用完整原始示范独立训练；
+- 它已经达到`92.7%/24/H=0.965`，具有适合3×48结构自身的闭环控制表示；
+- 其noise→mode映射、低频模式和纠错行为在步数蒸馏前已经建立；
+- 后续蒸馏主要解决16→1时间压缩和Teacher对齐。
+
+跨规模Teacher-derived路线：
+
+- 从4×72 Teacher经过层/宽度投影得到3×48；
+- 投影后功能、内部坐标系和模式分隔均不完整；
+- Repair只使用有限Teacher rollout，必须同时重建压缩表示、闭环控制和多模态noise→mode映射；
+- CTM输入虽恢复到22种模式，但SR只有63.1%，说明许多模式仍位于脆弱、低裕量的决策区域；
+- 一步CTM最容易通过增加少数安全路径的概率来降低平均损失和提高SR。
+
+所以“同规模可以、跨规模不行”不能直接解释为3×48参数不足。同一个3×48若完整训练可以覆盖24种模式，说明容量足以表示这些模式；差别主要在可达的表示基底、监督覆盖和优化路径。
+
+### 13.2 四个相互作用的原因
+
+1. **表示基底失配**：Teacher的hidden channels、attention heads和层级功能不能无损投影到Student。Teacher中彼此分离的模式，在Student表示空间可能已经靠近或重叠；
+2. **功能裕量不足**：跨规模Repair虽然恢复22种成功模式，但整体SR远低于Full-trained Student。低频模式可能只在少数噪声和状态下成功，CTM更新很容易将其抹除；
+3. **数据覆盖不足**：固定Teacher rollout对低频状态和专家恢复动作覆盖有限。本次Demo oracle把覆盖由8提高到12，验证这一因素真实存在；
+4. **平均损失与闭环目标不一致**：CTM/DSM按样本平均优化，高频、低误差和安全路径贡献更稳定。牺牲少量低频模式可能降低平均loss并提高总体SR，因此产生“高SR、低多样性”的局部最优。
+
+可用以下因果链理解：
+
+```text
+跨结构投影
+  → 模式在Student表示中分隔变弱
+  → 有限rollout Repair只恢复脆弱的22-mode支持
+  → CTM平均损失偏向高频/安全映射
+  → 一步输出集中为8–12种模式
+```
+
+### 13.3 当前能够和不能够声明的结论
+
+可以声明：
+
+> 严重collapse不是有限Student参数量单独造成的，而是跨结构表示迁移误差、有限Teacher数据覆盖与一步CTM优化偏置共同造成；原始示范可以部分缓解，但不能消除该问题。
+
+暂时不能声明：
+
+- 所有跨规模蒸馏必然collapse；
+- CTM理论上不能保持多模态；
+- 完整训练Student与Teacher-derived Student的差异完全来自原始数据，因为二者同时还存在初始化和优化路径差异。
+
+下一步最有信息量的验证是：在不访问原始示范的前提下扩大并主动均衡Teacher-query覆盖，同时将逐点/自举CTM改为条件样本集合的distribution matching；若在相同3×48和相同Repair起点上恢复模式，才说明提出的方法真正解决了跨规模、demonstration-free场景的问题。
+
+## 14. BMD方向
+
+《Behavioral Mode Discovery for Fine-tuning Multimodal Generative Policies》使用离散latent、noise steering和trajectory-level互信息发现预训练生成策略中的行为模式，并以互信息奖励缓解RL fine-tuning collapse。该方法与当前问题高度相关，但原版针对RLFT，不能直接等同于CTM约束。
+
+本项目将优先研究Teacher-relative版本：在冻结Repair checkpoint上发现latent modes，构造无监督mode-balanced Teacher buffer，再加入Teacher-frozen mode classifier和per-mode conditional distribution matching。完整论文解读、方法改造、实验矩阵和TODO见[行为模式发现与保模态蒸馏](05_行为模式发现与保模态蒸馏.md)。

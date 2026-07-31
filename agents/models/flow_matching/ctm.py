@@ -29,6 +29,22 @@ def conditional_distance_loss(student_endpoint, teacher_endpoint, samples_per_st
     return torch.nn.functional.smooth_l1_loss(student_dist / scale, teacher_dist / scale)
 
 
+def centered_gram_loss(student_endpoint, teacher_endpoint, samples_per_state):
+    """Match normalized endpoint geometry for K noises sharing each state."""
+    if samples_per_state <= 1:
+        return student_endpoint.sum() * 0.0
+    groups = student_endpoint.shape[0] // samples_per_state
+    student = student_endpoint.flatten(1).reshape(groups, samples_per_state, -1)
+    teacher = teacher_endpoint.flatten(1).reshape(groups, samples_per_state, -1)
+    student = student - student.mean(dim=1, keepdim=True)
+    teacher = teacher - teacher.mean(dim=1, keepdim=True)
+    student = student / student.norm(dim=(1, 2), keepdim=True).clamp_min(1e-6)
+    teacher = teacher / teacher.norm(dim=(1, 2), keepdim=True).clamp_min(1e-6)
+    student_gram = student @ student.transpose(-2, -1)
+    teacher_gram = teacher @ teacher.transpose(-2, -1)
+    return torch.nn.functional.mse_loss(student_gram, teacher_gram)
+
+
 def ctm_paths(student,target,teacher,action,state,noise,indices,bins):
     t_index,s_index=indices; u_index=t_index+1
     batch,dtype,device=action.shape[0],action.dtype,action.device
