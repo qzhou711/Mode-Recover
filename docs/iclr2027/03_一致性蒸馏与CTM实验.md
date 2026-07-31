@@ -110,3 +110,60 @@ CTM恢复54.2个SR百分点，但丢失8种模式，熵降低0.484。这说明Re
 最终目标不是单独寻找最高SR的CTM，而是回答：
 
 > 在有限容量、teacher-only机器人策略蒸馏中，如何让结构Repair保留noise-to-mode函数，并使后续一步consistency distillation不将其压缩为少数安全路径？
+
+## 10. 3500与6000 Repair起点的Standard-480验证
+
+四卡同步对照设置：
+
+| Repair起点 | 选择理由 | Repair评估 | CTM评估 |
+|---|---|---|---|
+| 3500 | Standard-120覆盖最高：20/24 | 16-step Standard-480 | 500-epoch CTM，1-step Standard-480 |
+| 6000 | 续训阶段SR最高：65.0% | 16-step Standard-480 | 500-epoch CTM，1-step Standard-480 |
+
+该实验用于判断CTM后的模式上限是否受输入Repair多样性决定，并量化高覆盖与高SR起点各自的SR增益、覆盖损失和熵下降。运行目录：`logs/avoiding/teacher_generated_minilmv2_repair_ctm_480/`。
+
+### 10.1 最终Standard-480结果
+
+| Repair起点 | 阶段 | SR | 覆盖 | 熵 |
+|---:|---|---:|---:|---:|
+| 3500 | Repair，16步 | 240/480，50.0% | 21/24 | 0.842 |
+| 3500 | CTM，1步 | 299/480，62.3% | 11/24 | 0.429 |
+| 6000 | Repair，16步 | 277/480，57.7% | 22/24 | 0.845 |
+| 6000 | CTM，1步 | 318/480，66.3% | 12/24 | 0.451 |
+
+### 10.2 Collapse幅度
+
+| Repair起点 | SR变化 | 覆盖变化 | 熵变化 |
+|---:|---:|---:|---:|
+| 3500 | +12.3pp | −10 | −0.414 |
+| 6000 | +8.5pp | −10 | −0.394 |
+
+结论：
+
+1. Standard-480确认MiniLMv2 Repair已恢复大部分teacher模式：21–22/24；
+2. 相同Flow-CTM对两个起点都稳定丢失10种模式，collapse不是某个单一Repair checkpoint的偶然现象；
+3. 6000起点在CTM前后均略优，说明更好的Repair输入能提高CTM输出上限，但不能解决collapse；
+4. 当前下一优先级应从延长Repair训练转为`CTM＋弱跨噪声关系`、`CTM＋endpoint anchor`及二者组合；
+5. 轨迹和metrics位于`logs/avoiding/teacher_generated_minilmv2_repair_ctm_480/epoch_{3500,6000}_{repair16,ctm1}/eval480/`。
+
+## 11. Mode-preserving CTM TODO
+
+在Repair四卡消融选出最佳16步checkpoint后，固定该checkpoint进行第二个四卡因子实验：
+
+| GPU | CTM配置 | 初始权重 |
+|---:|---|---|
+| 0 | Flow-CTM＋DSM | `lambda_dsm=0.1` |
+| 1 | CTM＋DSM＋teacher endpoint | `lambda_endpoint=0.1` |
+| 2 | CTM＋DSM＋同状态K=4输出关系 | `lambda_mode=0.03` |
+| 3 | CTM＋DSM＋endpoint＋K=4输出关系 | `lambda_endpoint=0.1, lambda_mode=0.03` |
+
+同状态多噪声关系直接约束输出终点的中心化Gram，而不是只对齐内部attention：
+
+```text
+L_mode = MSE(
+  Gram(center(student_endpoints)),
+  Gram(center(teacher_endpoints))
+)
+```
+
+Endpoint anchor保持逐噪声身份对应，Gram保持一组噪声结果的相对几何。训练500 epochs，保存100/250/500并做Standard-120。首轮目标为`SR≥65%、Coverage≥18、H≥0.70`；通过者补Standard-480、Paired-1000/JS和至少两个额外seed。

@@ -73,15 +73,31 @@ def cross_noise_relation_loss(student_rel,teacher_rel,multi_noise):
             values.append(F.mse_loss(sf@sf.transpose(-2,-1),tf@tf.transpose(-2,-1)))
     return torch.stack(values).mean()
 
+def differentiable_integrate(model,x,state,steps=16,start_time=0.0,end_time=1.0):
+    """Heun integration without the deployment-time no_grad decorator."""
+    dt=(end_time-start_time)/steps
+    for index in range(steps):
+        current=start_time+index*dt
+        t=torch.full((len(x),),current,device=x.device,dtype=x.dtype)
+        velocity=model.velocity(x,t,state)
+        if index+1==steps:
+            x=x+dt*velocity
+        else:
+            predictor=x+dt*velocity
+            next_t=torch.full_like(t,current+dt)
+            next_velocity=model.velocity(predictor,next_t,state)
+            x=x+0.5*dt*(velocity+next_velocity)
+    return x
+
 def main():
     p=argparse.ArgumentParser();p.add_argument('--bundle-dir',type=Path,required=True);p.add_argument('--buffer',type=Path,required=True);p.add_argument('--output-dir',type=Path,required=True)
-    p.add_argument('--method',choices=['activation_dynamic','pca_dynamic','early_dynamic','width_dynamic','pca_multinoise_endpoint','pca_balanced_multitime','pca_combined','early_multinoise_endpoint','early_combined','width_multinoise_endpoint','width_combined','attention_relation','minilmv2_relation','minilmv2_multinoise_relation'],required=True);p.add_argument('--pretrain-epochs',type=int,default=300);p.add_argument('--ctm-epochs',type=int,default=500);p.add_argument('--batch-size',type=int,default=256);p.add_argument('--max-batches',type=int,default=4);p.add_argument('--multi-noise',type=int,default=4);p.add_argument('--cross-noise-weight',type=float,default=1.0);p.add_argument('--endpoint-weight',type=float,default=.1);p.add_argument('--save-pretrain-epochs',type=str,default='');p.add_argument('--pretrain-only',action='store_true');p.add_argument('--initialization-only',action='store_true');p.add_argument('--pretrained-structure',type=Path,default=None);p.add_argument('--seed',type=int,default=42);a=p.parse_args()
+    p.add_argument('--method',choices=['activation_dynamic','pca_dynamic','early_dynamic','width_dynamic','pca_multinoise_endpoint','pca_balanced_multitime','pca_combined','early_multinoise_endpoint','early_combined','width_multinoise_endpoint','width_combined','attention_relation','minilmv2_relation','minilmv2_multinoise_relation'],required=True);p.add_argument('--pretrain-epochs',type=int,default=300);p.add_argument('--ctm-epochs',type=int,default=500);p.add_argument('--batch-size',type=int,default=256);p.add_argument('--max-batches',type=int,default=4);p.add_argument('--learning-rate',type=float,default=1e-4);p.add_argument('--multi-noise',type=int,default=4);p.add_argument('--cross-noise-weight',type=float,default=1.0);p.add_argument('--relation-velocity-weight',type=float,default=.1);p.add_argument('--velocity-ramp-epochs',type=int,default=0);p.add_argument('--mode-balanced-sampling',action='store_true');p.add_argument('--relation-endpoint-weight',type=float,default=0.0);p.add_argument('--student-induced-weight',type=float,default=0.0);p.add_argument('--endpoint-steps',type=int,default=16);p.add_argument('--endpoint-weight',type=float,default=.1);p.add_argument('--save-pretrain-epochs',type=str,default='');p.add_argument('--pretrain-only',action='store_true');p.add_argument('--initialization-only',action='store_true');p.add_argument('--initial-structure',type=Path,default=None);p.add_argument('--pretrained-structure',type=Path,default=None);p.add_argument('--seed',type=int,default=42);a=p.parse_args()
     torch.manual_seed(a.seed);np.random.seed(a.seed);a.output_dir.mkdir(parents=True,exist_ok=True)
     data=torch.load(a.buffer,map_location='cpu'); assert not data['metadata']['uses_original_demonstrations']; assert not data['metadata']['uses_expert_actions']
     states=data['states'].float(); source_noises=data['noises'].float(); pseudo_actions=data['teacher_endpoints'].float()
     dataset=TensorDataset(states,source_noises,pseudo_actions)
     sampler=None
-    if ('balanced_multitime' in a.method or 'combined' in a.method):
+    if a.mode_balanced_sampling or ('balanced_multitime' in a.method or 'combined' in a.method):
         episode_ids=data['episode_ids'].long();mode_codes=(data['modes'].long()*(1<<torch.arange(data['modes'].shape[1]))).sum(1);sample_codes=mode_codes[episode_ids]
         _,inverse,counts=torch.unique(sample_codes,return_inverse=True,return_counts=True);weights=counts[inverse].float().reciprocal();sampler=WeightedRandomSampler(weights,len(weights),replacement=True)
     loader=DataLoader(dataset,batch_size=a.batch_size,shuffle=sampler is None,sampler=sampler,num_workers=0,drop_last=True)
@@ -91,14 +107,21 @@ def main():
     full_minilm=a.method in {'minilmv2_relation','minilmv2_multinoise_relation'}
     relation_multinoise=a.method=='minilmv2_multinoise_relation'
     init_kind='pca' if a.method.startswith('pca') else 'early' if a.method.startswith('early') else 'activation' if a.method.startswith('activation') else 'early' if relation_method else 'width'
-    initialization=init_student(teacher,student,init_kind,acts,layers,heads); torch.save(student.state_dict(),a.output_dir/'initial_flow.pth')
+    initialization=init_student(teacher,student,init_kind,acts,layers,heads)
+    if a.initial_structure is not None:
+        student.load_state_dict(torch.load(a.initial_structure,map_location='cuda'),strict=True)
+        initialization['continued_from']=str(a.initial_structure)
+    torch.save(student.state_dict(),a.output_dir/'initial_flow.pth')
     if a.initialization_only: torch.save(student.state_dict(),a.output_dir/'eval_best_flow.pth');(a.output_dir/'metrics.json').write_text(json.dumps({'method':a.method,'initialization':initialization,'uses_original_demonstrations':False,'uses_expert_actions':False},indent=2));return
     if a.pretrained_structure is not None: student.load_state_dict(torch.load(a.pretrained_structure,map_location='cuda'),strict=True)
     milestones={int(x) for x in a.save_pretrain_epochs.split(',') if x};dynamic=a.pretrained_structure is None; prehistory=[]
     if dynamic:
-        opt=torch.optim.Adam(student.get_params(),lr=1e-4); sched=torch.optim.lr_scheduler.CosineAnnealingLR(opt,a.pretrain_epochs,eta_min=1e-6); ema=ExponentialMovingAverage(student.get_params(),0.995,'cuda'); best=math.inf
+        opt=torch.optim.Adam(student.get_params(),lr=a.learning_rate); sched=torch.optim.lr_scheduler.CosineAnnealingLR(opt,a.pretrain_epochs,eta_min=1e-6); ema=ExponentialMovingAverage(student.get_params(),0.995,'cuda'); best=math.inf
         for epoch in range(a.pretrain_epochs):
-            vals=[];endpoint_vals=[];relation_vals=[];cross_noise_vals=[]
+            velocity_weight=a.relation_velocity_weight
+            if a.velocity_ramp_epochs>0:
+                velocity_weight*=min(1.0,(epoch+1)/a.velocity_ramp_epochs)
+            vals=[];endpoint_vals=[];relation_vals=[];cross_noise_vals=[];induced_vals=[]
             for bi,(state,noise,_action) in enumerate(loader):
                 if bi>=a.max_batches: break
                 state=state.cuda();noise=noise.cuda()
@@ -117,15 +140,25 @@ def main():
                 if ('multinoise_endpoint' in a.method or 'combined' in a.method):
                     with torch.no_grad(): teacher_endpoint=teacher.integrate(noise,state,start_time=0.0,end_time=1.0,steps=16)
                     zeros=torch.zeros(len(state),device='cuda');ones=torch.ones_like(zeros);student_endpoint=student.boundary_transition(noise,zeros,ones,state);endpoint_loss=F.mse_loss(student_endpoint,teacher_endpoint)
-                loss=(relation+a.cross_noise_weight*cross_noise+.1*velocity_loss) if relation_method else velocity_loss+a.endpoint_weight*endpoint_loss;opt.zero_grad(set_to_none=True);loss.backward();torch.nn.utils.clip_grad_norm_(student.get_params(),1);opt.step();ema.update(student.get_params());vals.append(float(velocity_loss.detach()));endpoint_vals.append(float(endpoint_loss.detach()));relation_vals.append(float(relation.detach()));cross_noise_vals.append(float(cross_noise.detach()))
-            sched.step();score=float(np.mean(relation_vals)+a.cross_noise_weight*np.mean(cross_noise_vals)+.1*np.mean(vals)) if relation_method else float(np.mean(vals)+a.endpoint_weight*np.mean(endpoint_vals));prehistory.append({'epoch':epoch,'velocity_loss':float(np.mean(vals)),'endpoint_loss':float(np.mean(endpoint_vals)),'relation_loss':float(np.mean(relation_vals)),'cross_noise_relation_loss':float(np.mean(cross_noise_vals)),'selection_loss':score})
+                if relation_method and a.relation_endpoint_weight>0:
+                    with torch.no_grad(): teacher_endpoint=teacher.integrate(noise,state,start_time=0.0,end_time=1.0,steps=a.endpoint_steps)
+                    student_endpoint=differentiable_integrate(student,noise,state,steps=a.endpoint_steps)
+                    endpoint_loss=F.mse_loss(student_endpoint,teacher_endpoint)
+                induced_loss=velocity_loss*0
+                if relation_method and a.student_induced_weight>0:
+                    with torch.no_grad():
+                        student_x=student.integrate(noise,state,start_time=0.0,end_time=t,steps=max(1,round(16*t)))
+                        induced_target=teacher.velocity(student_x,tv,state)
+                    induced_loss=F.mse_loss(student.velocity(student_x,tv,state),induced_target)
+                loss=(relation+a.cross_noise_weight*cross_noise+velocity_weight*velocity_loss+a.relation_endpoint_weight*endpoint_loss+a.student_induced_weight*induced_loss) if relation_method else velocity_loss+a.endpoint_weight*endpoint_loss;opt.zero_grad(set_to_none=True);loss.backward();torch.nn.utils.clip_grad_norm_(student.get_params(),1);opt.step();ema.update(student.get_params());vals.append(float(velocity_loss.detach()));endpoint_vals.append(float(endpoint_loss.detach()));relation_vals.append(float(relation.detach()));cross_noise_vals.append(float(cross_noise.detach()));induced_vals.append(float(induced_loss.detach()))
+            sched.step();score=float(np.mean(relation_vals)+a.cross_noise_weight*np.mean(cross_noise_vals)+velocity_weight*np.mean(vals)+a.relation_endpoint_weight*np.mean(endpoint_vals)+a.student_induced_weight*np.mean(induced_vals)) if relation_method else float(np.mean(vals)+a.endpoint_weight*np.mean(endpoint_vals));prehistory.append({'epoch':epoch,'velocity_weight':velocity_weight,'velocity_loss':float(np.mean(vals)),'endpoint_loss':float(np.mean(endpoint_vals)),'student_induced_loss':float(np.mean(induced_vals)),'relation_loss':float(np.mean(relation_vals)),'cross_noise_relation_loss':float(np.mean(cross_noise_vals)),'selection_loss':score})
             if score<best:best=score;save_ema(student,ema,a.output_dir/'structure_best_flow.pth')
             if epoch+1 in milestones: save_ema(student,ema,a.output_dir/f'pretrain_epoch_{epoch+1:04d}.pth')
             if epoch%25==0: print(json.dumps({'stage':'structure','method':a.method,'epoch':epoch,'loss':score}),flush=True)
         student.load_state_dict(torch.load(a.output_dir/'structure_best_flow.pth',map_location='cuda'),strict=True)
     else: torch.save(student.state_dict(),a.output_dir/'structure_best_flow.pth')
     if a.pretrain_only:
-        (a.output_dir/'pretrain_metrics.json').write_text(json.dumps({'method':a.method,'milestones':sorted(milestones),'pretrain_history':prehistory,'uses_original_demonstrations':False,'uses_expert_actions':False},indent=2));return
+        (a.output_dir/'pretrain_metrics.json').write_text(json.dumps({'method':a.method,'milestones':sorted(milestones),'relation_velocity_weight':a.relation_velocity_weight,'velocity_ramp_epochs':a.velocity_ramp_epochs,'mode_balanced_sampling':a.mode_balanced_sampling,'pretrain_history':prehistory,'uses_original_demonstrations':False,'uses_expert_actions':False},indent=2));return
     student.solver_steps=1;target=freeze(copy.deepcopy(student));student.train();opt=torch.optim.Adam(student.get_params(),lr=1e-4);sched=torch.optim.lr_scheduler.CosineAnnealingLR(opt,a.ctm_epochs,eta_min=1e-6);best=math.inf;best_epoch=-1;history=[]
     for epoch in range(a.ctm_epochs):
         cv=[];dv=[]
