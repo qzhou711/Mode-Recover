@@ -43,7 +43,7 @@ DDPM的8→4与4→2保持较高成功率和多数模式，2→1出现明显退�
 | `FM-3x48-1-Solver` | 82.1% | 14 | 0.569 |
 | `FM-3x48-1-Distill-3x48`，Teacher-init | 92.1% | 23 | 0.868 |
 
-同结构Teacher-init蒸馏不必然导致mode collapse；跨结构与初始化误差才是关键前置因素。
+同架构Teacher-init蒸馏不必然导致mode collapse；跨架构迁移与初始化误差才是关键前置因素。
 
 ## 5. Endpoint与Flow-CTM多seed结果
 
@@ -243,7 +243,7 @@ uses_expert_actions: true
 2. Mixed-100达到更高SR和本组最高熵，但覆盖略低于纯Demo，说明真实示范状态和Teacher闭环状态具有一定互补性；
 3. 训练到250/500后覆盖和熵重新下降，离线loss最佳epoch也不是闭环多样性最佳epoch，继续证明必须按SR—Coverage—H选择checkpoint；
 4. 最佳结果仍只有12/24，远低于Velocity-250 Repair起点的22/24。数据覆盖不足是mode collapse的一个原因，但不是全部原因；
-5. CTM自举目标、一步函数的优化偏置以及跨结构Student尚不完善的表示基底，仍会把概率质量集中到少数易拟合、闭环成功率高的路径。
+5. CTM自举目标、一步函数的优化偏置以及跨架构Student尚不完善的表示基底，仍会把概率质量集中到少数易拟合、闭环成功率高的路径。
 
 本实验形成一个重要诊断：
 
@@ -280,7 +280,7 @@ uses_expert_actions: true
 可用以下因果链理解：
 
 ```text
-跨结构投影
+跨架构投影
   → 模式在Student表示中分隔变弱
   → 有限rollout Repair只恢复脆弱的22-mode支持
   → CTM平均损失偏向高频/安全映射
@@ -291,7 +291,7 @@ uses_expert_actions: true
 
 可以声明：
 
-> 严重collapse不是有限Student参数量单独造成的，而是跨结构表示迁移误差、有限Teacher数据覆盖与一步CTM优化偏置共同造成；原始示范可以部分缓解，但不能消除该问题。
+> 严重collapse不是有限Student参数量单独造成的，而是跨架构表示迁移误差、有限Teacher数据覆盖与一步CTM优化偏置共同造成；原始示范可以部分缓解，但不能消除该问题。
 
 暂时不能声明：
 
@@ -306,3 +306,74 @@ uses_expert_actions: true
 《Behavioral Mode Discovery for Fine-tuning Multimodal Generative Policies》使用离散latent、noise steering和trajectory-level互信息发现预训练生成策略中的行为模式，并以互信息奖励缓解RL fine-tuning collapse。该方法与当前问题高度相关，但原版针对RLFT，不能直接等同于CTM约束。
 
 本项目将优先研究Teacher-relative版本：在冻结Repair checkpoint上发现latent modes，构造无监督mode-balanced Teacher buffer，再加入Teacher-frozen mode classifier和per-mode conditional distribution matching。完整论文解读、方法改造、实验矩阵和TODO见[行为模式发现与保模态蒸馏](05_行为模式发现与保模态蒸馏.md)。
+
+## 15. keep013深度压缩模型的16→1步蒸馏（2026-08-02）
+
+### 15.1 目的与协议审计
+
+本实验不再改变网络架构，专门检验TinySR启发的深度架构压缩成果能否继续完成一步蒸馏：
+
+```text
+FM-4x72-16 Full
+  -> FM-3x72-16 keep013（架构压缩/跨架构蒸馏）
+  -> FM-3x72-1（步数蒸馏）
+```
+
+一步Student与16步Teacher均从`FM-3x72-16 keep013` checkpoint出发。训练只使用Teacher
+rollout状态，并对同一state/noise在线查询keep013 Teacher endpoint；不读取原始demonstration
+或专家动作。两条方法共用结构、初始化、buffer、seed 42和500轮训练预算：
+
+1. **Endpoint fidelity**：直接拟合`TeacherIntegrate16(noise,state)`，用一次
+   `boundary_transition(0→1)`生成完整动作序列；
+2. **Boundary-CTM＋DSM 0.1**：使用boundary-preconditioned anytime consistency目标，并加入
+   弱去噪监督。
+
+审计中修正了一个重要协议问题：Boundary-CTM训练的是`boundary_transition(0→1)`，不能用
+普通一步ODE `integrate(steps=1)`替代评估。此次Standard-120明确使用boundary接口；旧结果如
+使用普通integrate，需要按各自记录解释，不能直接混合。
+
+### 15.2 Standard-120完整结果
+
+| 方法 | Epoch | SR | 覆盖 | 熵 |
+|---|---:|---:|---:|---:|
+| Endpoint | 100 | **113/120，94.2%** | 15/24 | 0.689 |
+| **Endpoint** | **250** | **111/120，92.5%** | **21/24** | **0.807** |
+| Endpoint | 500 | 108/120，90.0% | 19/24 | 0.762 |
+| Boundary-CTM＋DSM | 100 | 79/120，65.8% | **12/24** | **0.465** |
+| Boundary-CTM＋DSM | 250 | **98/120，81.7%** | 9/24 | 0.331 |
+| Boundary-CTM＋DSM | 500 | **98/120，81.7%** | 8/24 | 0.348 |
+
+Endpoint epoch-250是当前Pareto最佳点。它在Standard-120中保持92.5% SR和21种模式，明显
+优于Boundary-CTM。Endpoint从100到250轮将覆盖由15恢复至21，但500轮又回落至19，说明
+闭环最优checkpoint不由训练轮数或离线loss单调决定。
+
+Endpoint-250随后补充Standard-480，达到`441/480=91.9%`、`23/24`、`H=0.807`。相比
+keep013的`91.0%/24/H=.929`，SR的小幅差异不足以在单seed下宣称提升，但coverage少1种且熵
+明显下降，表明一步化主要改变模式频率并损失一个尾部mode。仍需多seed、独立suite和solver-only
+一步对照，才能正式量化蒸馏损失。
+
+### 15.3 Latency对比
+
+硬件与协议统一为V100、batch size 1、100次warmup、1000次CUDA Event计时；只测模型生成，
+不包含环境物理仿真和数据搬运。Endpoint latency使用选中的epoch-250 checkpoint。
+
+| 模型 | 结构/步数 | Mean | Median | P95 | 相对Full加速 |
+|---|---|---:|---:|---:|---:|
+| `FM-4x72-16 Full keep0123` | 4x72，16步 | **65.93 ms** | 65.29 ms | 69.57 ms | 1.0× |
+| `FM-3x72-16 keep013` | 3x72，16步 | 51.19 ms | 51.16 ms | 51.39 ms | **1.29×** |
+| `FM-3x72-1 Endpoint-250` | 3x72，1步 | **2.22 ms** | 2.19 ms | 2.38 ms | **29.7×** |
+
+纯深度压缩提供约1.29倍加速，16→1步数压缩提供主要收益；联合后相对原始4x72-16 Full约
+29.7倍。该数字是单样本纯生成kernel链路结果，不等价于机器人系统端到端wall-clock加速。
+
+### 15.4 当前结论与边界
+
+1. TinySR式架构压缩得到的高质量16步Student可以继续进行有效一步蒸馏；
+2. 直接paired endpoint fidelity在当前有限深度Student上明显优于自举Boundary-CTM；
+3. 一步Endpoint在Standard-480保持91.9% SR和23/24模式，但相对16步起点仍损失1种模式，
+   且熵由.929降至.807；
+4. 当前实验是3x72深度压缩路线的接口验证，不代表最终3x48小Student已经解决；
+5. 下一步必须补一步solver-only、逐mode成功率和多seed；并判断是否需要在Endpoint上加入
+   BMD/Natural Replay式分布约束，恢复最后1种模式并校正模式频率。
+
+关键产物：`logs/avoiding/keep013_step_distillation/`。

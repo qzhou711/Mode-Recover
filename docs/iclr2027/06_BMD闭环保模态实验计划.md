@@ -1,7 +1,7 @@
 # BMD闭环保模态实验计划
 
 长期目标是在不访问原始示范的条件下，为FastWAM、DreamZero等机器人WAM提供
-可迁移的跨结构、跨步数保模态蒸馏。当前短期目标是将`FM-3x48-16`压缩为
+可迁移的跨架构、跨步数保模态蒸馏。当前短期目标是将`FM-3x48-16`压缩为
 `FM-3x48-1`时，把成功mode覆盖由约15提升至至少18，并保持`SR>=65%`。
 
 ## 顺序TODO与当前状态
@@ -26,7 +26,7 @@
   `短轨迹set-OT＋弱endpoint anchor`；所有方法共用同一buffer、seed与训练预算；
 - [ ] P4c：Standard-120只用于淘汰；只有`SR>=65%`且覆盖至少18才补Standard-480；
 - [ ] P5：候选补三训练seed、paired exact-mode retention和per-mode SR；
-- [ ] P6：有效约束前移到`4x72->3x48`结构蒸馏，再验证完整结构＋步数链路；
+- [ ] P6：有效约束前移到`4x72->3x48`跨架构蒸馏，再验证完整架构＋步数链路；
 - [ ] P7：将轨迹encoder替换为action/world embedding，迁移FastWAM或DreamZero。
 
 ## 资源规则
@@ -76,7 +76,7 @@ P5固定协议：
 - [x] 所有训练seed使用同一Standard-480评估suite；
 - [ ] 三seed稳定后补paired retention/per-mode SR，再决定是否进入P6。
 
-## P6：强Teacher结构蒸馏与完整链路计划
+## P6：强Teacher跨架构蒸馏与完整链路计划
 
 ### 总体目标
 
@@ -84,11 +84,11 @@ P5固定协议：
 
 ```text
 FM-4x72-16 Full Teacher
-  -> FM-3x48-16 结构蒸馏/Repair
+  -> FM-3x48-16 跨架构蒸馏/Repair
   -> FM-3x48-1 Natural Replay步数蒸馏
 ```
 
-保持无原始示范、跨结构可迁移和mode-preserving。当前中期门槛：结构阶段
+保持无原始示范、跨架构可迁移和mode-preserving。当前中期门槛：架构压缩阶段
 `SR>=80%、Coverage>=22`；步数阶段相对结构Teacher的SR下降不超过5个百分点、
 覆盖下降不超过2 modes。
 
@@ -113,7 +113,7 @@ FM-4x72-16 Full Teacher
 
 若强Teacher rollout本身未通过SR/覆盖门槛，则停止，不进入结构Repair。
 
-### P6.2：结构迁移基线与因果拆分
+### P6.2：跨架构迁移基线与因果拆分
 
 - [ ] 固定同一个teacher-derived 3x48初始化，禁止混用Full-data warm start；
 - [ ] 保存初始化后16步Standard-120诊断，但不把它当最终方法；
@@ -127,7 +127,7 @@ FM-4x72-16 Full Teacher
 - [ ] 只有`SR>=75%、Coverage>=20`的候选补Standard-480；最终进入下一阶段要求
   `SR>=80%、Coverage>=22`。
 
-该阶段只训练和评估`FM-3x48-16`，不得同时改成一步，以隔离结构迁移损失。
+该阶段只训练和评估`FM-3x48-16`，不得同时改成一步，以隔离跨架构迁移损失。
 
 ### P6.3：Student-induced闭环迭代Repair
 
@@ -146,7 +146,7 @@ FM-4x72-16 Full Teacher
 #### Round 1执行协议（2026-08-01）
 
 - [x] 审计并否决旧的一步Student-induced实现：旧代码硬编码`3x48-16 -> 3x48-1`，
-  不适用于当前纯结构蒸馏；
+  不适用于当前纯架构压缩；
 - [x] 固定Teacher为`FM-4x72-16 Full`，Student起点为P6.2中SR并列但熵最高的
   `velocity+endpoint, epoch 250`；两者均保持16步；
 - [x] 单轨迹smoke验证原生`student state/noise -> teacher 16-step correction`配对，
@@ -198,12 +198,12 @@ Student真实访问但仍可由Teacher恢复的区域。这是DAgger/SafeDAgger�
 
 ### P6.4：Natural Replay步数蒸馏
 
-结构阶段通过后：
+架构压缩阶段通过后：
 
 - [ ] 用最佳`FM-3x48-16`生成至少2400条自身成功闭环rollout；
 - [ ] 对`FM-3x48-1`执行Natural Replay，不先加均衡、anchor或PCGrad；
 - [ ] seed 42筛checkpoint，固定epoch后补seed 43/44 Standard-480；
-- [ ] 报告结构Teacher到一步Student的SR retention、mode retention、JS和逐mode SR；
+- [ ] 报告16步架构压缩Student到一步Student的SR retention、mode retention、JS和逐mode SR；
 - [ ] 若一步SR损失超过5个百分点，再训练真正的4步和2步Student，比较
   `16->4->2->1`，不能用solver-only替代。
 

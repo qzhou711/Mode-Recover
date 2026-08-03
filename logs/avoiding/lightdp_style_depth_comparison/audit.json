@@ -1,0 +1,12 @@
+{
+  "long_term_objective": "transferable demo-free architecture compression plus step distillation for robot/WAM policies while preserving multimodality",
+  "short_term_bottleneck": "determine whether static SVD importance and learned gates select mode-preserving layers as reliably as closed-loop recoverability",
+  "stage_targeted": "architecture compression / cross-architecture distillation",
+  "mechanism_hypothesis": "LightDP-style learned layer gates optimize average fidelity but may miss noise-to-mode basin geometry",
+  "causal_control": "same FM-4x72-16 teacher, successful rollout buffer, 3x72 target, endpoint/velocity repair, seed and Standard-120 evaluator as keep013",
+  "data_access": "teacher rollouts only; no original demonstrations or expert actions",
+  "screen": "Standard-120 SR, coverage and entropy; confirm Standard-480 only if competitive",
+  "go": "SR>=88%, coverage>=22; compare selected mask and Pareto point with keep013",
+  "official_reproduction": false,
+  "reason": "LightDP has no accessible official code and its published setup is demonstration-based DDPM, so this is a controlled LightDP-style Flow adaptation"
+}

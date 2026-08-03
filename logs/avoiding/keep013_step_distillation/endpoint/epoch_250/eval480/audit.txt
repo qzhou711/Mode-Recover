@@ -1,0 +1,9 @@
+Long-term objective: demonstration-free structure+step distillation with mode preservation.
+Short-term bottleneck: confirm the Endpoint-250 Standard-120 Pareto point at publication-scale evaluation.
+Stage targeted: evaluation of step distillation; no training changes.
+Mechanism hypothesis: Endpoint fidelity preserves most but not all keep013 noise-to-mode basins.
+Causal intervention and controls: exact epoch-250 checkpoint, boundary 0->1 inference, episodes 0..479, seed42.
+Data-access status: evaluation only; no demonstrations or expert actions.
+Metrics and go/no-go: SR, successful-mode coverage, entropy, raw trajectories; Standard-480.
+Resource/time check: two V100, four workers/GPU, more than two hours remaining.
+Expected interpretations: stable >=20 coverage supports endpoint as Pareto baseline; substantial drop falsifies the Standard-120 ranking.
