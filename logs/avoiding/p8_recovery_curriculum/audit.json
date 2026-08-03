@@ -1,0 +1,20 @@
+{
+  "stage": "16-step structure distillation / recovery curriculum",
+  "teacher": "FM-4x72-16-Full",
+  "student": "FM-3x48-16",
+  "solver_steps": 16,
+  "uses_original_demonstrations": false,
+  "uses_expert_actions": false,
+  "evidence": "teacher takeover-to-end reaches 92.9% SR and 24/24 modes",
+  "hypothesis": "the student needs successful post-deviation recovery trajectories, not more ordinary teacher-rollout epochs",
+  "controlled": "same init, base buffer, successful recovery buffer, optimizer, endpoint weight, seed and update count",
+  "lanes": {
+    "gpu0": "25% recovery",
+    "gpu1": "50% recovery",
+    "gpu2": "75% recovery",
+    "gpu3": "curriculum 75->50->25%"
+  },
+  "screen": "checkpoints Standard-120 with 4 workers/GPU",
+  "gate": "SR>=75%, coverage>=20; passing candidate proceeds to Standard-480",
+  "forbidden": "no CTM/one-step stage and no original demonstrations"
+}

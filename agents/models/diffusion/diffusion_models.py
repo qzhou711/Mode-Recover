@@ -381,6 +381,7 @@ class Block(nn.Module):
             attn_pdrop: float,
             resid_pdrop: float,
             block_size: int,
+            ffn_dim: int = None,
 
     ):
         super().__init__()
@@ -393,10 +394,11 @@ class Block(nn.Module):
             resid_pdrop,
             block_size,
         )
+        ffn_dim = 4 * n_embd if ffn_dim is None else ffn_dim
         self.mlp = nn.Sequential(
-            nn.Linear(n_embd, 4 * n_embd),
+            nn.Linear(n_embd, ffn_dim),
             nn.GELU(),
-            nn.Linear(4 * n_embd, n_embd),
+            nn.Linear(ffn_dim, n_embd),
             nn.Dropout(resid_pdrop),
         )
 
@@ -426,6 +428,7 @@ class DiffusionTransformerNetwork(nn.Module):
             obs_seq_len: int,
             goal_drop: float = 0.1,
             linear_output: bool = False,
+            ffn_dim: int = None,
     ):
         super().__init__()
         self.device = device
@@ -457,7 +460,8 @@ class DiffusionTransformerNetwork(nn.Module):
                 n_heads,
                 attn_pdrop,
                 resid_pdrop,
-                block_size
+                block_size,
+                ffn_dim,
             ) for _ in range(n_layers)]
         )
         self.blocks.to(self.device)

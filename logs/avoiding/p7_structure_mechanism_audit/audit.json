@@ -1,0 +1,32 @@
+{
+  "long_term_goal": "demo-free transferable cross-architecture and cross-step WAM distillation with mode preservation",
+  "short_term_question": "is low FM-3x48-16 SR caused by teacher OOD recovery, initialization, or the former four-batch training protocol?",
+  "stage": "structure_distillation_only",
+  "teacher": "FM-4x72-16-Full",
+  "student": "FM-3x48-16",
+  "solver_steps": 16,
+  "uses_original_demonstrations": false,
+  "uses_expert_actions": false,
+  "controlled_training_variables": [
+    "teacher rollout buffer",
+    "optimizer",
+    "learning rate",
+    "full-pass count",
+    "seed",
+    "evaluation episodes"
+  ],
+  "independent_variable": "student initialization",
+  "lanes": {
+    "gpu0": "first-disagreement teacher takeover until episode termination (recovery ceiling)",
+    "gpu1": "random init plus 10 complete successful-teacher-buffer passes",
+    "gpu2": "teacher-derived PCA init plus the same 10 complete passes",
+    "gpu3": "MiniLMv2-6000 init plus the same 10 complete passes"
+  },
+  "screen": "Standard-120, four workers per GPU",
+  "confirmation": "best meaningful candidates receive Standard-480 later",
+  "go_no_go": {
+    "teacher_recovery": ">=90% means handoff/student resumption is primary; near 82% means teacher is an unreliable oracle on student states",
+    "teacher_buffer_train": ">=85% means old optimization/init protocol is primary; near 60% means teacher-only rollout supervision is insufficient or ambiguous",
+    "initialization": "same-data differences isolate teacher-derived initialization effects"
+  }
+}

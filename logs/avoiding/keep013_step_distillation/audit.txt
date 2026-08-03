@@ -1,0 +1,9 @@
+Long-term objective: demo-free transferable structure+step WAM distillation with mode preservation.
+Short-term bottleneck: test whether the successful keep013 depth-compressed model survives 16->1 step distillation.
+Stage targeted: step distillation only; 3x72 architecture fixed.
+Mechanism hypothesis: endpoint fidelity preserves teacher basins better than self-bootstrapped CTM, while both reduce latency.
+Causal intervention and controls: same keep013 teacher/init/buffer/seed; endpoint vs Boundary-CTM+DSM; 16-step and solver-only controls.
+Data-access status: teacher rollout states plus online keep013 queries; no original demonstrations or expert actions.
+Metrics and go/no-go: SR, coverage, entropy, trajectories, CUDA latency; Standard120 screen then Standard480.
+Resource/time check: two V100, about 3h40 remaining; tmux, resumable checkpoints.
+Expected interpretations: good 16-step but bad 1-step isolates step collapse; endpoint>CTM implicates CTM self-bootstrapping.

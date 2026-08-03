@@ -12,6 +12,8 @@ STEPS=${8:-16}
 LAYERS=${9:-3}
 EMBED_DIM=${10:-48}
 HEADS=${11:-3}
+FFN_DIM=${12:-}
+PASSTHROUGH_ARGS=("${@:13}")
 
 cd /ocean/projects/ccr200024p/qzhou7/projects/d3il
 PY=/jet/home/qzhou7/workspace/anaconda3/envs/d3il/bin/python
@@ -20,20 +22,22 @@ mkdir -p "$OUTPUT_DIR/shards"
 pids=()
 shards=()
 base=$((N_TRAJECTORIES / WORKERS))
-extra=$((N_TRAJECTORIES % WORKERS))
+remainder=$((N_TRAJECTORIES % WORKERS))
 offset=0
 for ((worker=0; worker<WORKERS; worker++)); do
   count=$base
-  ((worker < extra)) && count=$((count + 1))
+  ((worker < remainder)) && count=$((count + 1))
   start=$((EPISODE_START + offset))
   shard="$OUTPUT_DIR/shards/worker_${worker}"
   shards+=("$shard")
   mkdir -p "$shard"
+  extra_args=()
+  [[ -n "$FFN_DIM" ]] && extra_args+=(--ffn-dim "$FFN_DIM")
   CUDA_VISIBLE_DEVICES="$GPU" "$PY" -u evaluate_deployed_flow.py \
     --bundle-dir "$BUNDLE" --model-dir "$MODEL_DIR" \
     --layers "$LAYERS" --embed-dim "$EMBED_DIM" --heads "$HEADS" --steps "$STEPS" \
     --n-trajectories "$count" --episode-start "$start" --seed "$SEED" \
-    --output-dir "$shard" > "$OUTPUT_DIR/worker_${worker}.log" 2>&1 &
+    --output-dir "$shard" "${extra_args[@]}" "${PASSTHROUGH_ARGS[@]}" > "$OUTPUT_DIR/worker_${worker}.log" 2>&1 &
   pids+=("$!")
   offset=$((offset + count))
 done

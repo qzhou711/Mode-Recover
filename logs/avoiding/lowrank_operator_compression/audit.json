@@ -1,0 +1,24 @@
+{
+  "long_term_objective": "demo-free transferable structure and step distillation for WAM with mode preservation",
+  "short_term_bottleneck": "global residual-width compression collapses modes; concentrated FFN pruning loses execution reliability",
+  "stage_targeted": "structure distillation only; depth3/residual72/heads4/steps16 fixed",
+  "mechanism_hypothesis": "preserving all residual coordinates while distributing compression across operator ranks preserves noise-to-mode routing",
+  "lanes": {
+    "uniform_svd": "97,634 params; uniform ranks; weight-SVD initialization",
+    "uniform_activation": "97,634 params; identical ranks; rollout-activation-weighted initialization",
+    "routing_aware": "93,314 params; higher Q/K rank, moderate V/proj, lower FFN rank",
+    "hybrid_balanced": "107,426 params; FFN288->96 plus Q/K rank32 and V/proj rank16"
+  },
+  "controls": {
+    "teacher": "FM-3x72-16 keep013: Standard480 SR91.0%, coverage24",
+    "global_width": "3x48 global PCA: Standard120 SR78.3%, coverage4",
+    "ffn_activation": "residual72 FFN36 epoch500: Standard120 SR46.7%, coverage15"
+  },
+  "data": "same 140867 successful teacher-rollout states/noises/endpoints",
+  "uses_original_demonstrations": false,
+  "uses_expert_actions": false,
+  "repair": "identical velocity + 0.03 endpoint; 500 epochs; seed42",
+  "screening": "initial/50/250/500 Standard120; four workers per GPU",
+  "go_no_go": "SR>=80% and coverage>=22; then independent Standard480 and multiple seeds",
+  "expected_interpretation": "activation>SVD means task-aware geometry matters; routing-aware gain implicates Q/K; hybrid gain means compression must be distributed"
+}

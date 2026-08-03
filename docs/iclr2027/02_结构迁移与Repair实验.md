@@ -360,6 +360,253 @@ Standard-120结果：
 
 750/1000均未超过500轮计划中的Velocity-250：`70.8%/20/H=0.810`。两个seed在1000轮都退化到`62.5%/17/H=0.773`，说明继续延长当前Repair不会产生稳定收益。按照预设决策边界，停止追加单纯epoch，固定Velocity-250进入mode-preserving CTM。
 
+## 16. 强Teacher结构迁移与闭环恢复机制审计（2026-08-01）
+
+### 16.1 实验边界与共同设置
+
+本节补齐此前尚未写入文档的P6--P8实验。全部实验研究
+`FM-4x72-16-Full -> FM-3x48-16`结构蒸馏，Student始终使用16步求解器；尚未进入
+`16->1`步数蒸馏。除完整训练容量参照外，训练数据只来自冻结Teacher rollout或
+Teacher在Student状态上的在线查询，不读取原始demonstration，也不使用专家动作。
+
+关键参照为：
+
+| 模型/数据 | 协议 | SR | 覆盖 | 熵 |
+|---|---|---:|---:|---:|
+| FM-4x72-16-Full Teacher | Standard-480 | 460/480，95.8% | 24/24 | 0.945 |
+| FM-3x48-16-Full容量上界 | Standard-480 | 445/480，92.7% | 24/24 | 0.965 |
+| MiniLMv2-6000 teacher-derived起点 | Standard-480 | 277/480，57.7% | 22/24 | 0.845 |
+| Velocity-250既有最佳Repair | Standard-480 | 303/480，63.1% | 22/24 | 0.836 |
+
+`FM-3x48-16-Full`证明3x48容量本身足以达到92.7%/24；当前约60%的结果不能简单归因于
+Student参数不足。覆盖和熵均只对成功轨迹统计，因此22/24表示“22种路径至少偶尔成功”，
+不表示每种路径都可靠。
+
+### 16.2 P6.1：强Teacher闭环buffer
+
+四卡生成2400条FM-4x72-16 rollout，共151,214个状态样本。严格审计结果为
+`SR=96.92%`、`24/24`、`H=0.9454`，最少真实mode也有30条成功轨迹；元数据确认
+`uses_original_demonstrations=false`、`uses_expert_actions=false`。层次式无标签发现的最佳
+配置为basic trajectory features、无PCA whitening、full-covariance GMM、K=24，跨seed
+NMI为0.9786、silhouette为0.444、最小latent 33。该buffer足以作为全局Teacher状态来源，
+但其状态分布仍主要来自Teacher自身闭环。
+
+产物：`logs/avoiding/strong_teacher_expanded_2400/`。
+
+### 16.3 P6.2：强Teacher离线结构Repair
+
+四路均从MiniLMv2-6000开始，使用成功Teacher rollout、500 epochs、每epoch 4 batches，
+保存100/250/500。下表列出各方法最佳Standard-120点：
+
+| 方法 | 最佳epoch | SR | 覆盖 | 熵 |
+|---|---:|---:|---:|---:|
+| Natural velocity | 250 | 62.5% | 18/24 | 0.808 |
+| Velocity＋endpoint 0.03 | 250 | **62.5%** | **19/24** | **0.850** |
+| Velocity＋MiniLMv2 relation | 250 | 61.7% | 18/24 | 0.821 |
+| Velocity＋relation＋endpoint | 500 | 60.0% | 19/24 | 0.801 |
+
+四组均未通过预注册的`SR>=75%、Coverage>=20`门槛。弱endpoint提高了筛选点的覆盖和熵，
+但没有提高SR；关系目标也没有产生额外闭环收益。后续Student-induced实验统一选择
+Velocity＋endpoint epoch-250作为起点，是因为它在SR并列时具有更高覆盖和熵，而不是因为
+它已经达到结构Repair目标。
+
+### 16.4 P6.3 Round 1：普通Student-induced点查询
+
+使用上述起点生成480条全Student闭环轨迹，在每个Student状态以相同噪声查询Teacher。
+Student buffer自身为`SR=58.96%/19 modes/H=0.834`。固定endpoint权重0.03后比较
+25%、50%、75% induced采样及50%＋BMD均衡：
+
+| 配置 | 选取epoch | SR | 覆盖 | 熵 |
+|---|---:|---:|---:|---:|
+| 25% induced | 50 | **64.2%** | 17/24 | 0.754 |
+| 50% induced | 250 | 62.5% | **19/24** | 0.821 |
+| 75% induced | 100 | 60.8% | 16/24 | 0.769 |
+| 50% induced＋BMD均衡 | 50 | 62.5% | 17/24 | 0.782 |
+
+75%组在epoch-50曾覆盖20种，但SR仅55%，不能视为通过。静态增加Student状态比例形成明显的
+全局能力--局部纠错权衡；BMD均衡没有突破该Pareto前沿。单点Teacher标签不足以描述纠正后的
+状态演化，因而主线转向Intervention DAgger连续接管。
+
+### 16.5 P6.3 Round 2：Intervention DAgger
+
+触发条件为Teacher--Student endpoint归一化RMSE超过预注册`q80=0.4181`。Teacher分别连续
+接管H=4或H=8步，同时记录Student反事实输出：
+
+| 辅助执行 | Assisted SR | 覆盖 | 熵 | 平均触发次数 | Teacher控制步占比 |
+|---|---:|---:|---:|---:|---:|
+| H=4 | 82.08% | 24/24 | 0.909 | 5.377 | 33.27% |
+| H=8 | 82.29% | 24/24 | 0.905 | 3.748 | 45.47% |
+
+这些是Teacher参与控制的assisted rollout，不是Student评估结果。四路Repair的最佳
+Standard-120为：
+
+| Repair方式 | 最佳epoch | SR | 覆盖 | 熵 |
+|---|---:|---:|---:|---:|
+| H4-all | 50 | 65.0% | 17/24 | 0.773 |
+| H4-recovery-only | 250 | 65.8% | **19/24** | **0.837** |
+| H8-all | 100 | **68.3%** | 18/24 | 0.789 |
+| H8-recovery-only | 50 | 65.0% | 18/24 | 0.812 |
+
+虽然均未过筛选门槛，仍对H4-recovery和H8-all补做Standard-480，防止120条漏掉低频mode：
+
+| 方法 | Standard-480 SR | 覆盖 | 熵 |
+|---|---:|---:|---:|
+| H4-recovery | 284/480，59.17% | **22/24** | **0.862** |
+| H8-all | **291/480，60.63%** | **22/24** | 0.851 |
+
+Standard-120分别高估SR约6.6和7.7个百分点，并低估覆盖3--4种。两者保留22种偶发成功
+模式，但SR仍约60%，说明连续短接管没有转化为可靠Student能力。使用两个更新后Student各自
+重新采集480条全Student轨迹时，SR都只有55.83%、覆盖21；Teacher--Student disagreement
+q80从0.4181仅降至约0.405，局部差距改善很小。
+
+### 16.6 P7：三项机制审计
+
+为区分Teacher恢复能力、初始化和旧训练预算，执行以下受控实验。
+
+#### Teacher接管至终局恢复上限
+
+Student首次超过同一disagreement阈值后，Teacher持续控制至episode结束。Standard-480
+assisted结果为`446/480=92.92%`、`24/24`、`H=0.950`；477/480发生干预，Teacher控制
+86.48%的记录步。相比H4/H8的约82%，持续接管提高约10.7个百分点。
+
+这证明Teacher在Student偏离状态上并非完全失效，主要失败之一发生在有限接管后的控制权
+交还；但92.9%仍是assisted上限，不能写成Student性能，也不能证明所有Student状态都可恢复。
+
+#### 完整遍历Teacher buffer与初始化消融
+
+旧Repair每epoch只有4 batches。新实验让3x48完整遍历成功Teacher buffer：每轮约590
+batches，10轮约5900 updates；三路数据、optimizer、seed和评估完全相同，只改变初始化。
+
+| 初始化 | e1 SR/覆盖/H | e3 | e5 | e10 |
+|---|---|---|---|---|
+| Random | 9.2%/3/.239 | 16.7%/5/.389 | 17.5%/9/.601 | 30.0%/9/.338 |
+| Teacher-derived PCA | 7.5%/3/.334 | 47.5%/6/.224 | 55.0%/7/.182 | 57.5%/10/.306 |
+| MiniLMv2-6000 | **60.8%/17/.781** | 59.2%/16/.744 | 59.2%/16/.752 | 58.3%/17/.744 |
+
+结论是初始化显著决定可学性与模式保留：MiniLMv2远优于PCA和随机初始化。但单纯完整遍历
+Teacher buffer不能解决结构迁移；MiniLMv2继续训练反而轻微退化。因此当前约60%并非仅由
+“每epoch 4 batches训练不足”造成，普通Teacher-forced velocity目标与闭环可靠性存在错位。
+
+### 16.7 P8：成功恢复轨迹与Recovery Curriculum
+
+从P7接管至终局buffer筛出446条成功辅助轨迹、24,787个Teacher控制状态。所有组从同一
+Velocity＋endpoint Student开始，只使用成功恢复段，保持16步且demo-free。固定比例组训练
+250 epochs；课程组依次训练`75% -> 50% -> 25%`，每阶段100 epochs。
+
+固定比例完整Standard-120结果：
+
+| 恢复采样比例 | Epoch 50 | Epoch 100 | Epoch 250 |
+|---|---|---|---|
+| 25% | **70.8%/18/.791** | 57.5%/18/.772 | 54.2%/19/.799 |
+| 50% | 55.8%/16/.766 | 60.0%/17/.782 | 57.5%/17/.777 |
+| 75% | 64.2%/16/.785 | 52.5%/16/.754 | 63.3%/18/.804 |
+
+课程式结果：
+
+| 阶段 | 恢复比例 | SR | 覆盖 | 熵 |
+|---:|---:|---:|---:|---:|
+| 1 | 75% | 53.3% | 15/24 | 0.768 |
+| 2 | 50% | 56.7% | 18/24 | 0.786 |
+| 3 | 25% | 57.5% | 16/24 | 0.780 |
+
+无候选通过`75%/20`门槛，因此未补Standard-480。25%早期点可恢复到既有Standard-120
+SR水平，但仍少2种模式；继续训练明显降低SR。简单把成功恢复状态混入点对点velocity和
+endpoint监督，并没有教会Student持续完成恢复。该负结果否定的是当前静态混合目标，不是否定
+闭环恢复数据本身。
+
+### 16.8 当前可靠结论与下一步
+
+1. **当前主瓶颈是结构蒸馏，不是步数蒸馏。** 本节全部模型都是16步；3x48 Full的92.7%
+   又排除了容量不足这一单一解释。
+2. **MiniLMv2 teacher-derived初始化有必要但不充分。** 它显著优于Random/PCA，但仍未把
+   Teacher知识转化为高可靠闭环策略。
+3. **模式支持与闭环准确率脱钩。** 多个Student在Standard-480覆盖22种，但SR只有约60%；
+   这表示稀有模式偶发成功，而不是22种稳定技能。
+4. **Teacher具备较高恢复上限，但Student无法稳定接棒。** 接管到终局达到92.9%，有限H只到
+   约82%，短恢复片段的点对点训练又未改善Student。
+5. **继续扫epoch、混合比例或局部loss优先级低。** 下一步应使用真正的多步闭环恢复目标：
+   训练连续恢复片段的状态演化、固定episode级行为身份，并显式评估Teacher交还后Student的
+   survival/success曲线。
+
+产物根目录：
+
+- `logs/avoiding/p6_strong_teacher_structure_repair/`
+- `logs/avoiding/p6_student_induced_repair_round1/`
+- `logs/avoiding/p6_intervention_dagger_round2/`
+- `logs/avoiding/p6_intervention_dagger_repair/`
+- `logs/avoiding/p6_intervention_pareto_confirm/`
+- `logs/avoiding/p7_structure_mechanism_audit/`
+- `logs/avoiding/p8_recovery_curriculum/`
+
+## 17. TinySR启发的可恢复深度结构搜索计划（2026-08-01）
+
+TinySR的核心启发是按“有限恢复训练后的任务性能”选择剪枝mask，而不是按静态层重要性或
+初始化loss选择结构。当前FM Teacher只有4层，因此不使用Gumbel mask学习，而是穷举全部
+四种保留3层的有序子集，获得更准确、可审计的结论。
+
+### 17.1 第一阶段：深度与宽度解耦
+
+四卡并行比较`keep012/keep013/keep023/keep123`，统一构造`FM-3x72-16`。共享模块和保留
+Transformer block从4x72 Teacher逐元素精确复制，初始化最大差异必须为0。训练只使用2400条
+强Teacher成功rollout；目标固定为velocity MSE加弱endpoint anchor 0.03。四组共用seed 42、
+500轮cosine计划、每轮4 batches，保存50/100/250/500。
+
+每个checkpoint使用四worker Standard-120。预注册门槛为`SR>=80%、Coverage>=22`；通过者
+按SR、覆盖、熵排序并补Standard-480。Standard-120只负责筛选，且覆盖/熵只在成功轨迹上计算。
+
+### 17.2 第二阶段：宽度压缩
+
+只有最佳3x72通过Standard-480确认后，才固定其深度mask并执行`FM-3x72-16 -> FM-3x48-16`。
+该阶段比较teacher-derived width projection与Random对照，但不再改变层组合，从而单独测量
+宽度压缩造成的SR和mode损失。若3x72第一阶段都未过门槛，则停止宽度压缩，结论是当前
+teacher-rollout恢复目标不足以支持可恢复层选择，而不是任意挑一个失败mask继续。
+
+### 17.3 第三阶段与WAM迁移
+
+D3IL四层Teacher用于验证recoverability criterion；迁移到深层FastWAM/DreamZero后，才采用
+TinySR的blockwise mask probability、Dynamic Inter-block Activation和Expansion-Corrosion，
+避免深层组合爆炸。机器人版本的结构选择必须同时约束闭环SR、覆盖和逐mode可靠性，不能只用
+图像论文中的LPIPS/L1，也不能把高SR严重collapse的mask选为最佳。
+
+当前产物：`logs/avoiding/tinysr_depth_recoverability/`；执行脚本：
+`scripts/run_tinysr_depth_recoverability_4gpu.sh`。
+
+### 17.4 完成结果与阶段决策
+
+四种深度mask的recoverability差异非常显著。Standard-120最佳checkpoint分别为：
+
+| Mask | 最佳SR | 对应覆盖 | 熵 |
+|---|---:|---:|---:|
+| keep012 | 82.5% | 19/24 | 0.825 |
+| **keep013** | **91.7%** | **23/24** | **0.921** |
+| keep023 | 65.0% | 18/24 | 0.790 |
+| keep123 | 27.5% | 8/24 | 0.604 |
+
+自动选择keep013 epoch-500后的Standard-480为`437/480=91.0%`、`24/24`、`H=0.929`。
+相对4x72 Teacher只下降4.8个SR百分点和0.016熵，同时参数减少约23%。这推翻了“强Teacher
+rollout本身不足以支持高质量结构迁移”的宽泛解释：它足以支持纯深度迁移；旧3x48约60%的
+主要问题更可能来自深度与宽度同时变化及不合适的结构映射。
+
+后续固定keep013，即删除Teacher零索引第2层。先补独立suite与多seed，再以该3x72模型为
+Teacher单独研究`3x72 -> 3x48`宽度压缩；不再优先在旧3x48 Velocity起点上叠加恢复loss。
+完整协议、16组checkpoint、结论边界和产物见`07_可恢复性引导的深度压缩实验.md`。
+
+## 18. 宽度压缩机制实验更新（2026-08-02）
+
+最近三轮实验进一步定位了`3x72 -> 3x48`失败机制。Head-only `3x72, 4→3 heads`经250轮
+达到Standard-120 `90.8%/23/H=.911`；相反，保留4 heads但执行逐head 72→48映射仅达到
+`49.2%/10/H=.507`（coordinate）或`47.5%/4/H=.171`（PCA）。因此减少head数量不是主因，
+破坏共享72维残差坐标更关键。
+
+渐进PCA和PPCL适配器分别达到`85.0%/4/H=.086`与最高`67.5%/5/H=.165`，仍未恢复模式。
+保留72维残差、只将FFN从288压到36时，activation方案到epoch-500为
+`46.7%/15/H=.763`，表现为覆盖恢复但控制成功不足。这说明模式路由和可靠控制分布在残差、
+attention和FFN多个算子，不能通过压缩单一子系统解决。
+
+当前正在评估四种“保留残差72、跨Q/K/V/proj/FFN分布式低秩压缩”方案。完整设置、全部
+Standard-120数据、结论边界及实时状态见
+`实验日报/2026-08-02_最近12小时宽度压缩实验总结.md`。
+
 ### P1：Repair严格确认
 
 - [x] 对Pareto候选补Standard-480；

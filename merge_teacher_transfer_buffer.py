@@ -1,14 +1,19 @@
 import argparse,json,math
 from pathlib import Path
 import numpy as np,torch
-p=argparse.ArgumentParser();p.add_argument('--root',type=Path,required=True);a=p.parse_args()
+p=argparse.ArgumentParser();p.add_argument('--root',type=Path,required=True);p.add_argument('--base-buffer',type=Path,action='append',default=[]);a=p.parse_args()
 files=sorted(a.root.glob('shards/*/transfer_buffer.pt'))
-if not files: raise SystemExit('no shard buffers')
-parts=[torch.load(f,map_location='cpu') for f in files]
+all_files=[*a.base_buffer,*files]
+if not all_files: raise SystemExit('no base or shard buffers')
+parts=[torch.load(f,map_location='cpu') for f in all_files]
 tensor_keys=['states','noises','teacher_endpoints','episode_ids','control_steps','successes','modes']
 merged={k:torch.cat([x[k] for x in parts],dim=0) for k in tensor_keys}
 merged['paths']=sum([x['paths'] for x in parts],[])
-merged['metadata']={'source':'deployed_teacher_plus_environment','uses_original_demonstrations':False,'uses_expert_actions':False,'shards':[str(f) for f in files]}
+merged['metadata']={'source':parts[0]['metadata'].get('source','teacher_plus_environment'),
+                    'source_model':parts[0]['metadata'].get('source_model'),
+                    'uses_original_demonstrations':False,'uses_expert_actions':False,
+                    'base_buffers':[str(f) for f in a.base_buffer],
+                    'shards':[str(f) for f in files]}
 success=merged['successes'].numpy().astype(bool); modes=merged['modes'].numpy()[success]
 if len(modes):
  enc=modes.dot(1<<np.arange(modes.shape[1])); _,counts=np.unique(enc,return_counts=True); pmode=counts/counts.sum()

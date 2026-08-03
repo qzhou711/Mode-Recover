@@ -1,0 +1,21 @@
+{
+  "long_term_objective": "demo-free transferable structure and step distillation for robot/WAM with mode preservation",
+  "short_term_bottleneck": "global residual-width compression 72->48 destroys mode routing before repair",
+  "stage_targeted": "structure distillation only; depth=3, heads=4 where possible, solver=16 fixed",
+  "mechanism_hypothesis": "the shared residual coordinate system, not raw parameter capacity or head count, carries noise-to-mode routing",
+  "lanes": {
+    "progressive_pca": "InDistill-inspired 72->60->48, 250+250 updates",
+    "ppcl_adapter": "72->48 with training-only layerwise linear alignment adapters",
+    "ffn_activation": "keep residual72, prune FFN 288->36 by teacher activation energy",
+    "ffn_weight_saliency": "keep residual72, prune FFN 288->36 by input-output weight saliency"
+  },
+  "matched_control": "existing direct global PCA 72->48: epoch250 SR78.3%, coverage4/24",
+  "teacher": "FM-3x72-16 keep013; Standard480 SR91.0%, coverage24/24",
+  "data": "same successful native teacher rollout buffer; 140867 states",
+  "uses_original_demonstrations": false,
+  "uses_expert_actions": false,
+  "base_repair": "velocity + 0.03 endpoint; PPCL lane additionally uses documented training-only feature alignment",
+  "screening": "initial/50/250/500 as applicable; Standard120 with four workers per GPU",
+  "go_no_go": "advance only candidates with SR>=80% and coverage>=22; confirm with Standard480 and seeds",
+  "interpretation": "good residual72 FFN lanes implicate shared-coordinate destruction; progressive gain supports capacity-gap curriculum; PPCL gain supports learned alignment"
+}

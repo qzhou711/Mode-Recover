@@ -1,0 +1,17 @@
+{
+  "scope": "FM-3x72-16 keep013 -> FM-3x48-16 width-only structure distillation",
+  "teacher_steps": 16,
+  "student_steps": 16,
+  "depth_fixed": 3,
+  "teacher_rollout_episodes": 2400,
+  "methods": [
+    "random_orthogonal",
+    "pca",
+    "activation_coordinate",
+    "qkv_sensitivity"
+  ],
+  "repair": "identical velocity + 0.03 endpoint",
+  "uses_original_demonstrations": false,
+  "uses_expert_actions": false,
+  "gate": "Standard-120 SR>=80%, coverage>=22; passing best gets independent Standard-480"
+}

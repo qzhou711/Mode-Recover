@@ -1,0 +1,19 @@
+{
+  "long_term_objective": "demo-free transferable cross-architecture and step distillation with mode preservation",
+  "short_term_bottleneck": "FM-3x72-16 -> FM-3x48-16 loses noise-to-mode routing",
+  "stage": "structure distillation only; depth=3 and solver_steps=16 fixed",
+  "hypothesis": "coupled 4->3 attention-head repartition and width projection destroys functional head identity",
+  "teacher": "FM-3x72-16 keep013 Standard-480 91.0%, 24/24",
+  "buffer": "same successful native teacher rollout buffer for all lanes",
+  "uses_original_demonstrations": false,
+  "uses_expert_actions": false,
+  "lanes": [
+    "3x72-h3 head-only",
+    "3x48-h4 per-head coordinate",
+    "3x48-h4 per-head PCA",
+    "3x48-h3 global PCA control"
+  ],
+  "repair": "identical velocity + 0.03 endpoint, seed 42, epochs 500",
+  "screening": "initial and epochs 50/100/250/500, Standard-120, four workers/GPU",
+  "go_no_go": "SR>=80% and coverage>=22; only passing candidates merit Standard-480"
+}

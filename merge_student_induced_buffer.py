@@ -1,0 +1,6 @@
+import argparse,json
+from pathlib import Path
+import numpy as np,torch
+p=argparse.ArgumentParser();p.add_argument('--root',type=Path,required=True);a=p.parse_args();files=sorted(a.root.glob('shards/*/student_induced_buffer.pt'));parts=[torch.load(f,map_location='cpu') for f in files]
+tensor_keys=['states','noises','student_endpoints','teacher_corrections','episode_ids','control_steps','teacher_successes','student_successes','teacher_modes','student_modes','teacher_latents'];merged={k:torch.cat([x[k] for x in parts]) for k in tensor_keys};merged['teacher_paths']=sum([x['teacher_paths'] for x in parts],[]);merged['student_paths']=sum([x['student_paths'] for x in parts],[]);merged['metadata']={'uses_original_demonstrations':False,'uses_expert_actions':False,'shards':[str(f) for f in files],'workers_per_gpu':4};torch.save(merged,a.root/'student_induced_buffer.pt')
+ts=merged['teacher_successes'].numpy();ss=merged['student_successes'].numpy();metrics={'episodes':len(ts),'teacher_success_rate':float(ts.mean()),'student_success_rate':float(ss.mean()),'both_success_rate':float((ts&ss).mean()),'uses_original_demonstrations':False};(a.root/'metrics.json').write_text(json.dumps(metrics,indent=2));print(json.dumps(metrics,indent=2))

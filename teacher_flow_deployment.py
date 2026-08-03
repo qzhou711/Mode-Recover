@@ -5,17 +5,25 @@ from omegaconf import OmegaConf
 from agents.models.flow_matching.flow_matching import FlowMatching
 
 
-def build_flow(layers, embed_dim, heads, device="cuda", steps=16):
+def build_flow(layers, embed_dim, heads, device="cuda", steps=16, ffn_dim=None,
+               operator_config=None):
+    if operator_config is not None:
+        ffn_dim = operator_config.get("ffn_dim", ffn_dim)
     network = OmegaConf.create({
         "_target_": "agents.models.diffusion.diffusion_models.DiffusionTransformerNetwork",
         "state_dim": 4, "action_dim": 2, "goal_conditioned": False,
         "goal_seq_len": 10, "obs_seq_len": 5, "embed_pdrob": 0,
         "goal_drop": 0, "attn_pdrop": 0.2, "resid_pdrop": 0.1,
         "embed_dim": embed_dim, "n_layers": layers, "n_heads": heads,
-        "device": device, "linear_output": True,
+        "device": device, "linear_output": True, "ffn_dim": ffn_dim,
     })
-    return FlowMatching(4, 2, network, device=device, solver_steps=steps,
+    flow = FlowMatching(4, 2, network, device=device, solver_steps=steps,
                         solver="heun", time_scale=100.0).to(device)
+    if operator_config is not None:
+        from agents.models.diffusion.operator_compression import apply_operator_compression
+        apply_operator_compression(flow.model, operator_config["ranks"])
+        flow = flow.to(device)
+    return flow
 
 
 class DeploymentScaler:

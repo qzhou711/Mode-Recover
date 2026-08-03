@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 import torch
 from envs.gym_avoiding_env.gym_avoiding.envs.avoiding import ObstacleAvoidanceEnv
-from teacher_flow_deployment import load_deployed_teacher
+from teacher_flow_deployment import DeploymentScaler,build_flow,load_deployed_teacher
 
 
 def main():
@@ -16,8 +16,26 @@ def main():
     p.add_argument('--n-episodes',type=int,required=True)
     p.add_argument('--seed',type=int,default=2027)
     p.add_argument('--progress-every',type=int,default=10)
+    p.add_argument('--model-dir',type=Path,default=None)
+    p.add_argument('--layers',type=int,default=3)
+    p.add_argument('--embed-dim',type=int,default=48)
+    p.add_argument('--heads',type=int,default=3)
+    p.add_argument('--steps',type=int,default=16)
     a=p.parse_args(); a.output_dir.mkdir(parents=True,exist_ok=True)
-    teacher,scaler,meta=load_deployed_teacher(a.bundle_dir)
+    if a.model_dir is None:
+        teacher,scaler,meta=load_deployed_teacher(a.bundle_dir)
+        source='deployed_teacher_plus_environment'
+    else:
+        meta=torch.load(a.bundle_dir/'deployment_metadata.pt',map_location='cpu')
+        scaler=DeploymentScaler(meta,'cuda')
+        teacher=build_flow(a.layers,a.embed_dim,a.heads,'cuda',a.steps)
+        checkpoint=a.model_dir if a.model_dir.is_file() else a.model_dir/'eval_best_flow.pth'
+        teacher.load_state_dict(torch.load(checkpoint,map_location='cuda'),strict=True)
+        teacher.min_action=meta['y_bounds_tensor'][0].cuda()
+        teacher.max_action=meta['y_bounds_tensor'][1].cuda()
+        teacher.eval()
+        for parameter in teacher.parameters(): parameter.requires_grad_(False)
+        source='repair_checkpoint_plus_environment'
     env=ObstacleAvoidanceEnv(render=False); env.start()
     states=[]; noises=[]; endpoints=[]; episode_ids=[]; control_steps=[]
     paths=[]; successes=[]; modes=[]
@@ -34,7 +52,7 @@ def main():
             state=torch.stack(tuple(context),dim=1)
             gen=torch.Generator(device='cpu').manual_seed(a.seed+eid*100003+step*1009)
             noise=torch.randn(1,state.shape[1],2,generator=gen).to(state.device)
-            with torch.no_grad(): endpoint=teacher.sample(state,initial_noise=noise,steps=meta['teacher_steps'])
+            with torch.no_grad(): endpoint=teacher.sample(state,initial_noise=noise,steps=a.steps if a.model_dir is not None else meta['teacher_steps'])
             if len(context)==meta['window_size']:
                 states.append(state[0].cpu()); noises.append(noise[0].cpu()); endpoints.append(endpoint[0].cpu())
                 episode_ids.append(eid); control_steps.append(step)
@@ -49,8 +67,9 @@ def main():
     payload={'states':torch.stack(states),'noises':torch.stack(noises),'teacher_endpoints':torch.stack(endpoints),
              'episode_ids':torch.tensor(episode_ids),'control_steps':torch.tensor(control_steps),
              'successes':torch.tensor(successes),'modes':torch.from_numpy(np.stack(modes)),
-             'paths':paths,'metadata':{'source':'deployed_teacher_plus_environment','uses_original_demonstrations':False,
-             'uses_expert_actions':False,'episode_start':a.episode_start,'n_episodes':a.n_episodes,'seed':a.seed}}
+             'paths':paths,'metadata':{'source':source,'source_model':str(a.model_dir) if a.model_dir is not None else str(meta['source_checkpoint']),
+             'uses_original_demonstrations':False,'uses_expert_actions':False,'episode_start':a.episode_start,
+             'n_episodes':a.n_episodes,'seed':a.seed,'solver_steps':a.steps if a.model_dir is not None else meta['teacher_steps']}}
     torch.save(payload,a.output_dir/'transfer_buffer.pt')
     print(json.dumps({'samples':len(states),'episodes':a.n_episodes,'success_rate':float(np.mean(successes))}),flush=True)
 if __name__=='__main__': main()

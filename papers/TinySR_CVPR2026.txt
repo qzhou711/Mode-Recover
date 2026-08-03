@@ -1,0 +1,651 @@
+                    This CVPR Findings paper is the Open Access version, provided by the Computer Vision
+                          Foundation. Except for this watermark, it is identical to the accepted version;
+                           the final published version of the proceedings is available on IEEE Xplore.
+
+
+
+
+             TinySR: Shallow Diffusion Transformers for Real-World Image
+                                  Super-Resolution
+
+                     Linwei Dong1     Qingnan Fan2    Yuhang Yu2    Qi Zhang2
+                                       2             1†
+                           Jinwei Chen      Yawei Luo     Changqing Zou1, 3
+            1                       2                                       3
+              Zhejiang University     Vivo Mobile Communication Co. Ltd       Zhejiang Lab
+
+                                                                         Low-Quality   OSEDiff       TSD-SR           AdcSR   TinySR (Ours)
+                        Abstract
+
+Real-world image super-resolution (Real-ISR) focuses on
+recovering high-quality images from low-resolution inputs
+that suffer from complex degradations like noise, blur, and
+compression. Recently, diffusion models (DMs) have shown
+great potential in this area by leveraging strong generative
+priors to restore fine details. However, their iterative de-
+noising process incurs high computational overhead, pos-               Times (s)            0.168       0.147        0.048    0.026 (Best)
+
+ing challenges for real-time applications. Although one-               MACs (G)              2269             2700     1049    427 (Best)
+
+step distillation methods, such as OSEDiff and TSD-SR, of-             Param. (M)           1761           2112      456       341 (Best)
+
+fer faster inference, they remain fundamentally constrained
+                                                                       Figure 1. A comprehensive comparison of recent Real-ISR mod-
+by their large, over-parameterized model architectures. In             els in terms of visual quality, inference time, computational cost
+this work, we present TinySR, a compact yet effective diffu-           (MACs), and parameter count, highlighting the superior efficiency
+sion model specifically designed for Real-ISR that achieves            and performance of our proposed method.
+real-time performance while maintaining perceptual qual-
+ity. We introduce Dynamic Inter-block Activation and
+Expansion-Corrosion Strategy to facilitate more effective              tion in practical downstream applications. However, for
+decision-making in depth pruning. We achieve VAE com-                  resource-constrained environments, the iterative sampling
+pression through channel pruning, attention blocks removal             nature and high computational demands of DMs fundamen-
+and lightweight SepConv. We eliminate time- and prompt-                tally limit their deployment [8].
+related modules and perform pre-caching techniques to fur-                 Significant efforts in reducing diffusion model sampling
+ther speed up the model. TinySR significantly reduces                  steps have dramatically improved the inference latency of
+computational cost and model size, achieving up to 5.68×               DM-based Real-ISR approaches. Recent advancements
+speedup and 83% parameter reduction compared to its                    in efficient Real-ISR models, such as OSEDiff [48] and
+teacher TSD-SR, while still providing high quality results.            TSD-SR [13] seek to condense the denoising process into
+                                                                       a single step by carefully designed distillation while pre-
+                                                                       serving high-quality restoration performance. However,
+1. Introduction                                                        these methods still depend on large pre-trained models,
+                                                                       which require significant computational resources and foot-
+Real-world image super-resolution (Real-ISR) [42, 52]                  print, posing challenges for real-time applications and edge-
+aims to reconstruct high-fidelity images from low-quality              device deployment. There is a critical demand for more
+observations corrupted by compound degradations includ-                efficient and compact models that can be readily achieved
+ing noise contamination, nonlinear blur, and compression               while maintaining competitive performance.
+artifacts. Recently, diffusion models (DMs) have demon-                    Diffusion compression primarily involves several key
+strated significant promise for Real-ISR by leveraging their           techniques, including operator optimization [11, 38], pre-
+powerful priors to effectively address complex degrada-                cision quantization [17, 27], width pruning [4, 8, 45], and
+tion patterns while recovering realistic textures and details          depth pruning [10, 15, 25, 28]. Depth pruning serves as a
+[19, 34]. Their impressive performance over GAN-based                  simple but effective technique, favored for its linear accel-
+Real-ISR methods [30] has driven their widespread adop-                eration and straightforward implementation. The conven-
+
+
+
+                                                                5075
+tional paradigm for depth pruning is dependent upon empir-
+ical [25] or importance-based metrics [16, 33] to guide layer
+selection, yet it overlooks the recoverability of the model’s
+performance on its target task after being pruned. Instead of
+relying on static importance scores, probability-based mask
+learning aims to iteratively refine this sampling distribution,
+such that layers with greater performance recoverability are
+more likely to be sampled. However, in ultra-deep net-
+works, mask learning confronts a combinatorial explosion
+in the search space, which results in prohibitive optimiza-
+tion complexity and slow convergency [15].
+    Beyond deep architecture limitation, DMs-based Real-
+ISR models exhibit two other computational bottlenecks:                  Figure 2. Performance and efficiency comparison among DMs-
+high overhead from VAE (Variational Auto-Encoder) [26]                   based Real-ISR methods on an NVIDIA V100 GPU. All metrics
+and inefficiencies from redundant condition modules dur-                 are evaluated on the RealSR benchmark. TinySR achieves the
+ing super-resolution process. AdcSR [5] eliminates the                   fastest inference, lightest computation (low MACs) and commend-
+VAE encoder by employing a PixelUnshuffle operation [37].                able performance (high CLIPIQA).
+However, fine-grained channel pruning is required in de-
+noising networks to align channel dimensions, which signif-
+icantly increases overall complexity and coupling between                  speedup and 83% parameter reduction compared to its
+its components. Regarding prompts and time embeddings,                     teacher, while maintaining a strong perceptual quality.
+recent studies [5, 13] indicate that these conditions con-               • A novel depth pruning method that incorporates
+tribute minimally to the one-step Real-ISR model, suggest-                 Dynamic Inter-block Activation and Expansion-
+ing that a more efficient model can be achieved by eliminat-               Corrosion Strategy to enable more effective pruning de-
+ing these inputs and related modules.                                      cisions with preserved model performance.
+                                                                         • Component       streamlining     strategies  incorporate
+    Based on these analyses, we propose TinySR, a com-
+                                                                           lightweight VAE, redundant conditional structures
+pact yet effective DMs-based Real-SR model that elimi-
+                                                                           pruning, and modulation parameters pre-caching.
+nates computational redundancies in TSD-SR while main-
+taining restoration quality. Following mask learning, we
+propose identifying candidate layers that exhibit high-                  2. Related Work
+performance recoverability. We partition the network                     Real-World Image Super-Resolution. Real-world image
+into non-overlapping blocks and introduce sets of learn-                 super-resolution (Real-ISR) addresses the challenges of re-
+able probabilities p(m) for each blcok to constrain search               constructing high-resolution images from low-quality in-
+space. We propose Dynamic Inter-block Activation, a                      puts affected by complex, unknown degradations. Early ap-
+method that leverages the learnable probability q(t) for soft            proaches like BSRGAN [52] and Real-ESRGAN [42] pio-
+boundary exploration, and introduce a novel Expansion-                   neered synthetic degradation modeling using random blur,
+Corrosion Strategy to determine the optimal pruning                      noise, and compression patterns to enhance generalization.
+scheme. These proposed techniques involve a strategic                    While these methods improved the model’s performance,
+trade-off between optimization complexity and exploratory                they often introduced undesirable artifacts. The emergence
+potential. Furthermore, we propose several strategies to fur-            of diffusion models, particularly Stable Diffusion [14, 36],
+ther compress the Real-ISR model. To lighten the VAE,                    marked a significant advancement in perceptual quality.
+we perform channel-wise pruning, remove its computa-                     Techniques incorporating StableSR [40] , DiffBIR [31] and
+tionally intensive attention modules, and replace its stan-              SeeSR [49] demonstrated remarkable results in SR tasks,
+dard convolutions with depthwise separable convolutions                  but their iterative denoising process rendered them imprac-
+[20]. We eliminate time- and prompt-related modules to                   tical for time-sensitive applications. Recent efforts have fo-
+further enhance computational efficiency. Extensive exper-               cused on distilling multi-step diffusion processes into effi-
+iments on standard Real-ISR benchmarks demonstrate that                  cient one-step networks. Real-ISR methods such as OSED-
+our method is up to 5.68× faster, with 84% MAC and 83%                   iff [48] and TSD-SR [13] introduced specialized distillation
+parameter reductions compared to its teacher, TSD-SR, yet                techniques for this purpose. Nevertheless, these models still
+preserves strong perceptual quality (Fig. 1) and comparable              inherit the substantial computational overhead of their dif-
+quantitative results (Fig. 2) .                                          fusion backbones, with parameter counts often exceeding
+    Overall, our contribution is summarized as follows:                  one billion. This high complexity poses a significant chal-
+• A Real-ISR model called TinySR that achieves 5.68×                     lenge for their deployment on mobile and edge devices.
+
+
+
+                                                                  5076
+                                                                            ing scheme commonly rely on heuristic-based layer impor-
+                                                                            tance (e.g., sensitivity analysis and metrics-based selection)
+                                                                            or empirical manual configurations. However, these care-
+                                                                            fully designed strategies typically overlook the intricate and
+                                                                            interdependent layer dynamics within SR diffusion trans-
+                                                                            formers, leading to suboptimal optimization and potentially
+                                                                            weak recoverability in the retained layers.
+                                                                               Inspired by TinyFusion [15], instead of pursuing mod-
+                                                                            els that rely on immediate high-importance feedback, we
+Figure 3. Depth pruning closely aligns with the theoretical linear
+acceleration curve compared with width pruning.                             propose identifying candidate layers with strong recover-
+                                                                            ability, enabling more efficient teacher-student knowledge
+                                                                            distillation. We formalize the pruning process as a bi-level
+Efficient Pruning and Compression Techniques. The de-                       optimization problem:
+ployment of large diffusion models on resource-constrained
+hardware necessitates efficient model compression tech-                            min min Ex,m∼G(p(m)) [L(x, Φ + ∆Φ, m)] .             (2)
+                                                                                   p(m) ∆Φ
+niques. TinyFusion [15] enables real-time generation by
+using learnable depth pruning, which is optimized with
+LoRA-based fine-tuning and Gumbel-Softmax sampling                          This objective is to identify an optimal mask that minimizes
+[22]. Other methods, such as BK-SDM [25] and Snap-                          the loss function L during the optimization process. Since
+Fusion [28], reduce model size and latency through struc-                   discrete mask selection is non-differentiable, we reparame-
+tural pruning and on-the-fly architecture modification. In                  terize each mask option with a learnable probability param-
+the domain of super-resolution, AdcSR [5] introduces an                     eter p(m) and then use Gumbel-Softmax [22] trick G to do
+adversarial compression methodology that achieves a 3.7×                    differentiable sampling:
+speedup and a 74% reduction in parameters, while preserv-                                                                         !
+ing output quality through well-designed adversarial dis-                                              exp((gi + log pi )/τ )
+                                                                              G(p(m)) = one-hot       P                               , (3)
+tillation. Collectively, these methods represent a substan-                                            j exp((gj + log pj )/τ )
+tial advancement in model compression, enabling resource-
+constrained hardware to generate high-quality outputs with                  where gi is random noise drawn from the Gumbel distribu-
+improved computational efficiency.                                          tion and τ refers to the temperature term. The probabilistic
+                                                                            sampling of m can be achieved by m = G(p(m))T · M, M
+3. Methodology                                                              represents the complete search space. For the final pruning
+We aim to learn a compact but effective diffusion model                     decision, we pick m with maximum p(m), as it reveals the
+for real-world image super-resolution (Real-ISR). To miti-                  strongest recovery. We call this process mask learning.
+gate the computational load and inference latency caused by                 Search Space Dilemma. A significant challenge in stan-
+the excessively deep architecture of the TSD-SR network,                    dard mask learning arises from the combinatorial explosion.
+we prioritize depth pruning (Sec. 3.1) due to its superior                  Let M : N denote the selection of M from N layers, and
+pruning efficiency, as shown in Fig. 3. In Sec. 3.2, we in-                 CNM
+                                                                                  denote the set of combinations. As N grows, pruning
+troduce several key innovations to improve computational                    50% will show an explosive trend. For instance, pruning
+efficiency, including a lightweight VAE, a conditional in-                  50% of a 24-layer transformer C24 12
+                                                                                                                 leads to 2,704,156 pos-
+formation removal strategy, and a pre-caching technology.                   sible solutions, making direct probabilistic optimization ex-
+Last, the complete training recipes are given in Sec. 3.3.                  pensive. Naive approaches address this by partitioning an
+3.1. Dynamic Depth Pruning                                                  N -layer network into K non-overlapping blocks of size B,
+                                                                            enforcing uniform pruning within each. Assuming statisti-
+Depth Pruning Formulation. Consider an N -layers trans-
+                                                                            cal independence of the pruning decisions, the total proba-
+former parameterized by Φ = [ϕ1 , ϕ2 , . . . , ϕN ]T , where
+                                                                            bility p(m) can be factored into the product of local proba-
+each ϕi ∈ RD . Our goal is to identify an optimal bi-
+                                                                            bilities p(m(j) ) :
+nary mask m ∈ {0, 1}N that enables effective pruning
+while maintaining strong Super-Resolution (SR) perfor-                                                   K
+mance. The pruning mechanism is defined by:
+                                                                                                         Y
+                                                                                               p(m) =         p(m(j) ).                 (4)
+                                                                                                        j=1
+            xi+1 = mi · ϕi (xi ) + (1 − mi ) · xi ,           (1)
+here, xi is the input to the i-th layer, and ϕi (xi ) is its                While this simplifies the search, it drastically curtails the
+output. Traditional methods for determining the mask-                       space of possible solutions. The cardinality of this feasible
+
+
+
+                                                                     5077
+                                                     Expansion-Corrosion Dynamic Inter-block                                        Expansion-Corrosion
+                                                          Strategy           Activation
+                                                                                                                                         Strategy
+    DiT Layer                                                                                    Retained Layer
+                                                                                                                                                        35%
+    DiT Layer                                                        A                  A        Retained Layer
+                                                                                                                                                        5%
+    DiT Layer                                                                                    Retained Layer
+                                                                              D
+                                                                                                                                          ......
+    DiT Layer
+                                                                                                                                                        20%
+
+                                    Differentiable                                               Expansion        A
+                                    Sampling
+                                                                                                 Corrosion        D
+
+                                                                                                 Learnable
+                                                                                                                                     60% 20% 50% 70%
+                                                                                                                                      1   3    2   0
+    DiT Layer
+
+    DiT Layer                                                                                    Retained Layer                                        Expansion
+
+    DiT Layer                                                                 A                                              Cur.
+                                                                                                                             Mask
+    DiT Layer                                                        D                  D
+                                                                                                                                                       Corrosion
+                                                                                               Mask Scheme
+
+Figure 4. Our proposed mask learning method performs a probability-based decision for candidate solutions, jointly optimized with
+network weight updates. p(m) characterizes the probability distribution for each block’s pruning scheme. We perform a transformation
+probability q(t) to facilitate dynamic interaction between masks in different blocks, namely Dynamic Inter-block Activation. Leveraging
+the transfer scheme, we employ an Expansion-Corrosion Strategy to determine the final mask by expanding on elements with maximum
+marginal probability and corroding those with low marginal probability.
+
+
+subspace, denoted Mvalid is given by:                                             to sample a specific scheme through G. For example, we
+                                                                                assume k = 1, h = j + 1 and define the option space as
+                                               jB
+                                                X                                M′ = {m− , m, m+ }, where m is the pruning mask sam-
+Mvalid = m ∈ M ∀j ∈ {1, ..., K},                          mi = s                  pled by p(m), and m− (resp. m+ ) denotes Tj→j+1 (m, 1)
+                                                               
+                                          i=(j−1)B+1                              (resp. Tj←j+1 (m, 1)). The specific mask can be repre-
+                                                                     (5)          sented as m′ = G(q(t))T · M′ . And the total probability
+                                                         |Mvalid |
+The accessible fraction of the search space is            |M|         =           can be expressed as:
+ 46,656
+2,704,156 ≈ 1.725%. This demonstrates that over 98% of all                                                   K
+possible pruning masks are rendered unreachable by the im-
+                                                                                                             Y
+                                                                                               p(m) =                 p(m(j) ) · q(t(j) ) · r(j)             (6)
+position of this seemingly innocuous local constraint. Con-                                                  j=1
+                                                                                                                      |          {z            }
+sequently, the true optimal pruning scheme may be inadver-                                                                    p(m′(j) )
+
+tently excluded from this narrowly defined search space.                          where r is the probability of reaching m through t, and is
+Dynamic Inter-block Activation. To transcend the limita-                          related to expansion-corrosion strategies.
+tions of this static partitioning, we introduce a novel prun-                     Expansion-Corrosion Strategy.       Instead of random
+ing framework based on dynamic inter-block activation, as                         perturbation-based expansion or corrosion, our approach
+shown in Fig. 4. The core motivation is to relax the rigid                        utilizes the maximum marginal probability:
+local constraints and empower the pruning process to dis-                                                          X
+cover its own optimal layer distribution across the network.                                    πi = p(mi = 1) =         p(m)         (7)
+Instead of confining the search to the highly-constrained                                                                      m:mi =1
+Mvalid , our method begins within this space yet is allowed                       which is derived from training priors. Specifically, we start
+to explore beyond it. We achieve this by defining a set of                        by sorting the values of πi in descending order. Then we
+probabilistic transformation operators, T , governed by dis-                      iteratively select candidate layers, corresponding to these
+tribution parameters q(t). Specifically, Tj↔h (m, k) trans-                       sorted values, to form our candidate mask m̂, which is guar-
+forms m into m′ by pruning k active layers from block j (or                       anteed to be |m ∨ m̂|1 − |m|1 = k for expansion and
+h) while restoring k layers in h (or j). This mechanism en-                       |m|1 − |m ∧ m̂|1 = k for erosion. To ensure backpropa-
+sures that the total number of active layers remains constant                     gation, we replace the original intersection and union oper-
+across the pair of blocks (j, h) while dynamically adjusting                      ations with the following simplified computations:
+their individual sparsity profiles. The transformation dis-
+tribution parameters q(t), are also learnable and applicable                            m− = m ⊙ m̂,                  m+ = clamp(m + m̂, 0, 1),              (8)
+
+
+
+                                                                           5078
+here, ⊙ represents the element-wise product. This continu-              Collectively, the above optimizations yield a compact
+ous relaxation maintains the meaning of expansion or cor-               model with an 83% reduction in parameters and an 84%
+rosion while allowing for gradient flow, which is crucial for           reduction in MACs, while maintaining comparable quality
+training our pruning models.                                            and a 5.68× acceleration, as demonstrated in Fig. 5.
+Pruning Decision. Unlike traditional mask learning, where               3.3. Training Scheme
+decisions are made directly from p(m), our approach de-
+termines the transformations for each block based on maxi-              VAE Training. We train the VAE encoder Etiny by aligning
+mum q(t) and then selects the final mask based on π.                    latent space features using MSE loss:
+
+3.2. Component Streamlining                                                      Lencoder = ∥Etiny (xLR ) − Epre (xLR )∥22 ,        (9)
+Efficient VAE Architecture. We identify three primary
+                                                                        here, xLR represents low-quality data, Epre is the pre-
+performance bottlenecks in the VAE of the TSD-SR frame-
+                                                                        trained encoder. Training is conducted for 100k steps using
+work: 1) Excessively large channel dimensions. As shown
+                                                                        a batch size of 64 and a learning rate (AdamW optimizer
+in Fig. 6(a), the MACs of components exhibit significant
+                                                                        [32]) of 3e-4 for this phase. We use LPIPS loss and GAN
+and widely varying reductions after pruning, particularly
+                                                                        loss to train the VAE decoder Dtiny :
+across compute-intensive modules such as the down, up and
+mid blocks. 2) Computationally intensive attention mecha-                  Ldecoder = λ1 LLPIPS (Dtiny (Epre (xLR )), xHR )
+nisms. As shown in Fig. 6(b), compared to the resnet block,                                                                        (10)
+the attention block poses a more significant computational                                   +λ2 LGAN (Dtiny (Epre (xLR ))),
+bottleneck, primarily due to its considerably higher MAC
+                                                                        here, xHR represents high-quality data. We set λ1 to 3 and
+count. 3) Time-consuming standard convolution. Convolu-
+                                                                        λ2 to 1. These two loss functions are jointly optimized to
+tional operations are computationally dominant within the
+                                                                        ensure both high fidelity and superior perceptual quality in
+VAE, constituting more than 85% of the overall computa-
+                                                                        the reconstructed images.
+tional workload. To address the above problem, we per-
+form pruning on both the encoder and decoder. Specifi-                  Pruning Decision Training. To ensure the recoverability
+cally, following [2], we first prune the maximum channel                of pruning, we design the optimization of mask learning us-
+width to 64 throughout the network, substantially reducing              ing distillation and task losses. Specifically, the task loss is
+both parameter count and computational complexity. All                  defined as LPIPS loss and L1 loss is utilized for the distil-
+self-attention modules are subsequently removed from the                lation loss. The total loss is expressed as follows:
+architecture to mitigate their substantial computational ex-
+pense. To better accommodate higher compression rates,                    Lpruning =λ3 LLPIPS (Dtiny (zstu ), xHR )
+we integrate depthwise separable convolutions [9, 20] into                              + λ4 ∥zstu − ztea ∥1 ,
+the encoder. However, the same modification proves detri-                                                                          (11)
+                                                                                where     zstu ∼ xLR − ϵstu (Etiny (xLR ), t),
+mental to the decoder’s performance, leading us to restrict
+the use of lightweight convolutions to the encoder alone.                                 ztea ∼ xLR − ϵtea (Etea (xLR ), t),
+
+Pruning Redundant Conditional Structures. In the TSD-                   ϵstu denotes the student denoising network, while ϵtea rep-
+SR model (our teacher), prompt embeddings, essential for                resents the teacher. t denotes timesteps, and Etea denotes
+text-to-image generation, contribute minimally to image SR              the teacher encoder. Training is conducted for 100k itera-
+tasks (Fig. 7), as it uses the default prompt embedding. Sim-           tions across 8 NVIDIA V100 GPUs, employing a learning
+ilarly, the time embedding layers, crucial for multi-step dif-          rate of 5e-5 and a global batch size of 8. We use LoRA [21]
+fusion, are redundant in single-step SR and can be removed              for training. λ3 and λ4 are both set to 1.
+to reduce computational cost without affecting output qual-
+ity. The removal of redundant structures effectively reduces            Restoration Training. A two-stage training approach is
+model inference latency, as shown in Fig. 5.                            utilized to expedite model convergence. The first stage in-
+                                                                        volves latent space training with the distillation loss for ef-
+Pre-cache Modulation Param. In TSD-SR architecture,                     ficient feature alignment:
+shift and scale parameters are generated by adaLN-Zero
+modulation [14, 35]. A key finding is that these modulation                              Lstage1 = ∥zstu − ztea ∥1 ,               (12)
+parameters generated by our model stabilize post-training
+and no longer exhibit input dependency. This property en-               The meaning of zstu and ztea is the same as mentioned
+ables us to pre-compute and cache these parameters, which               above. Training in the latent space enables us to use a larger
+are then loaded for inference, leading to a significant reduc-          global batch size (128) on 8 V100 GPUs. We set the learn-
+tion in computational overhead.                                         ing rate to 1e-4 and the LoRA rank to 64. The second stage
+
+
+
+                                                                 5079
+Figure 5. Comparisons of performance and efficiency for various design of efficient TinySR. Quality is measured by the MANIQA score,
+calculated on RealSR dataset. Efficiency is assessed via latency, MACs, and parameters. Latency and MACs are benchmarked for super-
+resolution a 128 × 128 low-quality image on a n NVIDIA V100 GPU. Our model achieves a 5.68× acceleration with 83% fewer parameters
+and 84% lower MACs, while maintaining comparable quality to the baseline.
+
+
+                                                                                   Comprehensive experimental details for the training pro-
+                                                                                cedure are available in the supplementary material.
+
+                                                                                4. Experiments
+                                                                                4.1. Experimental Settings
+                                                                                Datasets. We utilize DIV2K [1], Flickr2K [39], LSDIR
+Figure 6. Left: Channel pruning effectively reduces MACs across                 [29], and FFHQ [23] for training. To synthesize low-
+all modules, particularly in the computationally intensive down/up              resolution and high-resolution image pairs, we employ the
+and middle blocks. Right: Attention mechanism dominates the                     same degradation pipeline as described in Real-ESRGAN
+computational cost in a 64-channel VAE.                                         [42]. We evaluate the performance of our model on the
+                                                                                synthetic DIV2K-Val [1] dataset, alongside two real-world
+                                                                                datasets, RealSR [3] and DRealSR [46]. The datasets
+                                                                                consist of paired images with 128x128 low-quality and
+                                                                                512x512 high-quality resolutions.
+                                                                                Evaluation Metrics. For evaluating our method, we apply
+                                                                                both full-reference and no-reference metrics. Full-reference
+                                                                                metrics include PSNR and SSIM [44] (calculated on the
+ (a) (a) Low-Quality        (b) (b) Baseline    (c) (c) 90% TP Result           Y channel in YCbCr space) for fidelity, LPIPS [54] and
+                                                                                DISTS [12] for perceptual quality, and FID [18] for dis-
+Figure 7. Applying 90% token pruning (TP) yields visually com-
+parable results to the baseline with a slight quality drop, indicating          tribution comparison. No-reference metrics include NIQE
+the limited contribution of the default prompt.                                 [53], MUSIQ [24], MANIQA [50], CLIPIQA [40], TOPIQ
+                                                                                [7] and Q-Align [47].
+
+then adds LPIPS and GAN losses in the pixel space to im-                        4.2. Comparison with Existing SR Methods
+prove image-level fidelity:                                                     We categorize existing outstanding SR models into two
+          Lstage2 = λ5 ∥zstu − ztea ∥1                                          groups, single-step and multi-step diffusion models. Single-
+                                                                                step models include SinSR [43], OSEDiff [48], TSD-SR
+                       + λ6 LLPIPS (Dtiny (zstu ), xHR )         (13)           [13], and AdcSR [5], and multi-step models include Sta-
+                       + λ7 LGAN (Dtiny (zstu )),                               bleSR [41], DiffBIR [31], SeeSR [49], and ResShift [51].
+                                                                                Additional details of GAN-based Real-ISR methods [6, 30,
+where λ5 , λ6 , and λ7 are set to 5, 1, and 0.3, respectively.
+                                                                                42, 52] are given in the supplementary material.
+We fine-tune our model for 50k steps on 8 V100 GPUs, with
+a global batch size of 96, a learning rate of 1e-6 for student                  Quality Comparison. Tab. 1 shows a comparison with
+(5e-6 for discriminator), and a LoRA rank of 64.                                DMs-based baselines in Real-ISR tasks. For the first four
+
+
+
+                                                                         5080
+Table 1. Quantitative comparison of various methods on the DIV2K-Val dataset, with all efficiency metrics benchmarked on a NVIDIA
+V100 GPU. The best and second-best results are highlighted in bold, italic, respectively.
+
+ Method     SSIM ↑   LPIPS ↓   DISTS ↓    FID ↓   NIQE ↓    MUSIQ ↑          CLIPIQA ↑        #Steps       Time (s)   MACs (G)     #Param. (M)
+ StableSR   0.5722    0.3111    0.2046    24.95    4.7737        65.78          0.6764            200      12.731       79940             1410
+ DiffBIR    0.5717    0.3469    0.2108    33.93    4.6056        68.54          0.7125            50        6.435       24234             1717
+  SeeSR     0.6057    0.3198    0.1953    25.81    4.8322        68.49          0.6899            50        5.722       65857             2524
+ ResShift   0.6234    0.3473    0.2253    42.01    6.3615        60.63          0.5962            15        0.755       5491               174
+  SinSR     0.6018    0.3262    0.2069    35.55    5.9981        62.95          0.6501            1         0.210        2095              174
+ OSEDiff    0.6109    0.2942    0.1975    26.34    4.7089        67.31          0.6681            1         0.168        2269             1761
+ AdcSR      0.6017    0.2853    0.1899    25.52    4.3580        68.00          0.6764            1         0.048        1049              456
+ TSD-SR     0.5808    0.2673    0.1821    29.16    4.3224        71.69          0.7416            1         0.147        2700             2112
+  Ours      0.5725    0.2793    0.1883    22.44    4.1500        69.90          0.7201            1         0.026         427              341
+
+
+
+full-reference metrics, our model achieves performance                   Table 2. Performance comparison of depth pruning methods on
+comparable to its teacher TSD-SR and outperforms most                    the DIV2K-Val dataset. Our method exhibits superior recovery
+other models, securing the second rank for LPIPS and                     performance relative to other pruning strategies.
+DISTS. Furthermore, our model achieves the best result for                  Method       DISTS↓    FID↓    MANIQA↑    CLIPIQA↑   TOPIQ↑    Q-Align↑
+the distribution metric FID. For the latter three no-reference            Random-Min.    0.2012    31.40    0.5629     0.6944    0.6314     3.5698
+metrics, it demonstrates competitive performance: outper-                   Flux-Lite    0.2001    30.36    0.5822     0.6983    0.6529     3.6312
+                                                                            ShortGPT     0.2034    32.45    0.5681     0.7116    0.6584     3.6110
+forming all other models for NIQE, and ranking second for                  Sensitivity   0.1914    26.25    0.5879     0.6900    0.6583     3.7135
+both MUSIQ and CLIPIQA, thereby surpassing most other                      SnapFusion    0.2018    31.18    0.5788     0.7112    0.6579     3.6468
+                                                                            BK-SDM       0.1974    29.27    0.5792     0.6985    0.6562     3.6466
+methods.                                                                   TinyFusion    0.1904    26.46    0.5880     0.6995    0.6580     3.7301
+   As illustrated in Fig. 1 and Fig. 8, TinySR achieves com-                 Ours        0.1883    22.44    0.6083     0.7201    0.6629     3.7774
+petitive performance in recovering high-quality, sharp, and
+photorealistic images. Visual artifacts, specifically the gen-
+eration of fake textures, are frequently observed in outputs             83% decrease in total parameters, as shown in Fig. 5. No-
+from multi-step models such as StableSR, SeeSR, DiffBIR,                 tably, In a direct comparison with the current state-of-the-
+and ResShift due to their propensity for over-generation. A              art SR compression model, AdcSR, our model also demon-
+clear example, demonstrated in Fig. 8 (top), is the spurious             strates superior efficiency, with a 1.8× speedup and a 2.45×
+generation of hair patterns in regions where they should not             computation reduction.
+exist. OSEDiff and AdcSR consistently demonstrate sub-
+optimal restoration performance, frequently yielding out-                4.3. Comparison with Depth Pruning Methods
+puts with discernible blur. While TSD-SR exhibits excel-
+lent generation capabilities, it also tends to produce fake              We evaluate the depth pruning methods following these
+textures, as shown in Fig. 8 (bottom). TinySR, by contrast,              baselines: (1) Perturbation-based – We randomly prune
+demonstrates robust capabilities in reconstructing natural               models and select one with minimal task loss (LPIPS) for
+textures, notably encompassing structural integrity, botan-              training; (2) Similarity-based – Typically, these methods
+ical patterns, and sculpted surface details.                             base their decisions on an analysis of the similarity be-
+                                                                         tween each layer’s input and output, such as Flux-Lite [10]
+Efficiency Comparison. As demonstrated by the last four                  and ShortGPT [33]; (3) Metric-based – Decision-making
+columns of Tab. 1, the proposed TinySR exhibits superior                 through metric in general, such as Sensitivity Analysis [16]
+efficiency in terms of step number, inference time, and                  and SnapFusion [28]. (4) Experience-based - We follow
+computational cost. By leveraging one-step inference and                 the design of BK-SDM [25] for corresponding pruning;
+advanced compression, our model achieves dramatic ef-                    (5) Probability-based – Decision by optimized probabil-
+ficiency gains over leading multi-step Real-ISR methods                  ity parameters, such as TinyFusion [15] and our method.
+while maintaining comparable performance. Compared to                    Randomly generating and then selecting the minimum loss
+StableSR, SeeSR, DiffBIR, and ResShift, our model deliv-                 yields a low initial loss, but exhibits extremely weak recov-
+ers significant speed improvements (489×, 220×, 247×,                    ery ability after training. Similarity-based methods demon-
+29× ) with corresponding MAC reductions (187×, 154×,                     strate suboptimal fidelity (poor DISTS) and pronounced in-
+57×, and 12×). Compared to the one-step model SinSR                      consistencies across various no-reference metrics. For ex-
+and OSEDiff, it achieves 8.1× and 6.4× acceleration, re-                 ample, ShortGPT performs well on CLIPIQA but struggles
+spectively. Compared to its teacher, TSD-SR, it achieves a               considerably on MANIQA. Metric-based methods often ex-
+5.68× acceleration, a 84% reduction in computation, and a                hibit a bias towards the metrics they optimize. For instance,
+
+
+
+                                                                 5081
+   (a) Low-Quality            (b) StableSR                (c) SeeSR               (d) DiffBIR                (e) ResShift                   (f) Ours
+
+
+
+
+   (g) Low-Quality            (h) OSEDiff                 (i) TSD-SR               (j) AdcSR                  (k) SinSR                     (l) Ours
+
+              Figure 8. Qualitative comparisons of different DMs-based Real-ISR methods. Please zoom in for a better view.
+
+
+   Table 3. Ablation study of VAE compression on DrealSR.                      Table 4. Ablation study of removing the text embeddings, time
+                                                                               embeddings, and related modules on RealSR.
+     Method          PSNR ↑   SSIM ↑   LPIPS ↓   Time(ms)    MACs(G)
+                                                                                   Method        CLIPIQA ↑   MANIQA ↑   Time (ms)   MACs(G)    #Param. (M)
+     Tea. VAE        27.77    0.7559   0.2967     95.36       1781.91
+  + Chan. Pruning    27.49    0.7544   0.3052     22.79        146.56           w/ Text & Time     0.7081     0.6283        35.7      535          1010
+    + Rm. Attn.      27.36    0.7420   0.3222     11.22        131.91                Ours          0.7035     0.6235        27.4      427          516
+ SnapGen SepConv     27.50    0.7497   0.3054     10.75        89.74
+      Ours           27.56    0.7514   0.3038      9.25        78.48
+
+                                                                               Effect of Removing the Text and Time Modules. Tab. 4
+                                                                               presents the ablation study on the elimination of text and
+while Sensitivity Analysis performs well on reference met-                     time conditions, which demonstrates that our approach
+rics, and SnapFusion excels on CLIPIQA due to its pruning                      achieves a highly favorable trade-off between efficiency and
+scheme’s relation to it, both approaches demonstrate short-                    quality. Excising the text embeddings and related context
+comings in other metrics. Although BK-SDM and Tiny-                            modules yields a 486M parameter, 108G MACs, and 8ms
+Fusion show some effectiveness, our method exhibits en-                        time reduction, while only marginally decreasing the CLIP-
+hanced recoverability over all other approaches, performing                    IQA score by 0.0046 and the MANIQA score by 0.0048.
+favorably across both full-reference and no-reference eval-                    Subsequent removal of the time modules further reduces pa-
+uation metrics.                                                                rameters by 8M with a negligible impact on final quality.
+
+4.4. Ablation Study                                                            5. Conclusion
+Effect of VAE Compression. Tab. 3 presents the ablation                        In this paper, we propose TinySR, a highly efficient
+studies of VAE compression process. Channel pruning of-                        model that incorporates several novel contributions. For
+fers a significant reduction in computational overhead, with                   depth pruning, we introduce a Dynamic Inter-block
+only a minor compromise to perceptual reconstruction fi-                       Activation mechanism and an Expansion-Corrosion
+delity. While removing the attention module effectively                        Strategy to facilitate mask learning optimization. These
+doubles inference speed, it can somewhat impact recon-                         proposed techniques involve a strategic trade-off be-
+struction quality. For lightweight convolution, an alterna-                    tween optimization complexity and exploratory potential.
+tive approach, employing SnapGen’s [8] strategy of expand-                     To further reduce computational load, we compress
+ing channels in SepConv intermediate layers, yields perfor-                    the VAE via channel pruning, attention module re-
+                                                                               moval, and the use of lightweight SepConv. Finally, we
+mance comparable to our proposed solution. However, our                        accelerate inference by eliminating time- and prompt-
+method notably exhibit reduced computational overhead                          conditioning modules and implementing pre-caching
+and superior inference efficiency. Our efforts culminated                      techniques. Consequently, TinySR achieves up to a 5.68×
+in a lightweight VAE that delivers reconstruction quality on                   speedup and a 83% parameter reduction compared to its
+par with the teacher, concurrently achieving a 10× increase                    teacher, TSD-SR, while maintaining high-quality results.
+in inference speed and a 22× reduction in MACs.
+
+
+
+                                                                        5082
+References                                                                           Computer Vision and Pattern Recognition Conference, pages
+                                                                                     23174–23184, 2025. 1, 2, 6
+ [1] Eirikur Agustsson and Radu Timofte. Ntire 2017 challenge                 [14]   Patrick Esser, Sumith Kulal, Andreas Blattmann, Rahim
+     on single image super-resolution: Dataset and study. In Pro-                    Entezari, Jonas Müller, Harry Saini, Yam Levi, Dominik
+     ceedings of the IEEE conference on computer vision and pat-                     Lorenz, Axel Sauer, Frederic Boesel, et al. Scaling recti-
+     tern recognition workshops, pages 126–135, 2017. 6                              fied flow transformers for high-resolution image synthesis.
+ [2] Ollin Boer Bohan. Tiny autoencoder for stable diffusion.                        In Forty-first International Conference on Machine Learn-
+     https://github.com/madebyollin/taesd, 2023. 5                                   ing, 2024. 2, 5
+ [3] Jianrui Cai, Hui Zeng, Hongwei Yong, Zisheng Cao, and Lei                [15]   Gongfan Fang, Kunjun Li, Xinyin Ma, and Xinchao Wang.
+     Zhang. Toward real-world single image super-resolution:                         Tinyfusion: Diffusion transformers learned shallow. arXiv
+     A new benchmark and a new model. In Proceedings of                              preprint arXiv:2412.01199, 2024. 1, 2, 3, 7
+     the IEEE/CVF international conference on computer vision,                [16]   Song Han, Jeff Pool, John Tran, and William Dally. Learn-
+     pages 3086–3095, 2019. 6                                                        ing both weights and connections for efficient neural net-
+ [4] Thibault Castells, Hyoung-Kyu Song, Bo-Kyeong Kim, and                          work. Advances in neural information processing systems,
+     Shinkook Choi. Ld-pruner: Efficient pruning of latent diffu-                    28, 2015. 2, 7
+     sion models using task-agnostic insights. In Proceedings of              [17]   Yefei He, Luping Liu, Jing Liu, Weijia Wu, Hong Zhou,
+     the IEEE/CVF Conference on Computer Vision and Pattern                          and Bohan Zhuang. Ptqd: Accurate post-training quantiza-
+     Recognition, pages 821–830, 2024. 1                                             tion for diffusion models. arXiv preprint arXiv:2305.10657,
+ [5] Bin Chen, Gehui Li, Rongyuan Wu, Xindong Zhang, Jie                             2023. 1
+     Chen, Jian Zhang, and Lei Zhang. Adversarial diffusion                   [18]   Martin Heusel, Hubert Ramsauer, Thomas Unterthiner,
+     compression for real-world image super-resolution. arXiv                        Bernhard Nessler, and Sepp Hochreiter. Gans trained by a
+     preprint arXiv:2411.13383, 2024. 2, 3, 6                                        two time-scale update rule converge to a local nash equilib-
+ [6] Chaofeng Chen, Xinyu Shi, Yipeng Qin, Xiaoming Li, Xi-                          rium. Advances in neural information processing systems,
+     aoguang Han, Tao Yang, and Shihui Guo. Real-world blind                         30, 2017. 6
+     super-resolution via feature matching with implicit high-                [19]   Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising dif-
+     resolution priors. In Proceedings of the 30th ACM Interna-                      fusion probabilistic models. Advances in neural information
+     tional Conference on Multimedia, pages 1329–1338, 2022.                         processing systems, 33:6840–6851, 2020. 1
+     6                                                                        [20]   Andrew G Howard, Menglong Zhu, Bo Chen, Dmitry
+ [7] Chaofeng Chen, Jiadi Mo, Jingwen Hou, Haoning Wu, Liang                         Kalenichenko, Weijun Wang, Tobias Weyand, Marco An-
+     Liao, Wenxiu Sun, Qiong Yan, and Weisi Lin. Topiq: A                            dreetto, and Hartwig Adam. Mobilenets: Efficient convolu-
+     top-down approach from semantics to distortions for image                       tional neural networks for mobile vision applications. arXiv
+     quality assessment. IEEE Transactions on Image Processing,                      preprint arXiv:1704.04861, 2017. 2, 5
+     33:2404–2418, 2024. 6                                                    [21]   Edward J Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-
+ [8] Jierun Chen, Dongting Hu, Xijie Huang, Huseyin Coskun,                          Zhu, Yuanzhi Li, Shean Wang, Lu Wang, Weizhu Chen, et al.
+     Arpit Sahni, Aarush Gupta, Anujraaj Goyal, Dishani Lahiri,                      Lora: Low-rank adaptation of large language models. ICLR,
+     Rajesh Singh, Yerlan Idelbayev, et al. Snapgen: Tam-                            1(2):3, 2022. 5
+     ing high-resolution text-to-image models for mobile devices              [22]   Eric Jang, Shixiang Gu, and Ben Poole. Categorical
+     with efficient architectures and training. In Proceedings of                    reparameterization with gumbel-softmax. arXiv preprint
+     the Computer Vision and Pattern Recognition Conference,                         arXiv:1611.01144, 2016. 3
+     pages 7997–8008, 2025. 1, 8                                              [23]   Tero Karras, Samuli Laine, and Timo Aila. A style-based
+ [9] François Chollet. Xception: Deep learning with depthwise                       generator architecture for generative adversarial networks.
+     separable convolutions. In Proceedings of the IEEE con-                         In Proceedings of the IEEE/CVF conference on computer vi-
+     ference on computer vision and pattern recognition, pages                       sion and pattern recognition, pages 4401–4410, 2019. 6
+     1251–1258, 2017. 5                                                       [24]   Junjie Ke, Qifei Wang, Yilin Wang, Peyman Milanfar, and
+[10] Javier Martı́n Daniel Verdú. Flux.1 lite: Distilling flux1.dev                 Feng Yang. Musiq: Multi-scale image quality transformer.
+     for efficient text-to-image generation. 2024. 1, 7                              In Proceedings of the IEEE/CVF international conference on
+[11] Tri Dao, Dan Fu, Stefano Ermon, Atri Rudra, and Christo-                        computer vision, pages 5148–5157, 2021. 6
+     pher Ré. Flashattention: Fast and memory-efficient exact                [25]   Bo-Kyeong Kim, Hyoung-Kyu Song, Thibault Castells, and
+     attention with io-awareness. Advances in neural information                     Shinkook Choi. Bk-sdm: A lightweight, fast, and cheap ver-
+     processing systems, 35:16344–16359, 2022. 1                                     sion of stable diffusion. In European Conference on Com-
+[12] Keyan Ding, Kede Ma, Shiqi Wang, and Eero P Simoncelli.                         puter Vision, pages 381–399. Springer, 2024. 1, 2, 3, 7
+     Image quality assessment: Unifying structure and texture                 [26]   Diederik P Kingma, Max Welling, et al. Auto-encoding vari-
+     similarity. IEEE transactions on pattern analysis and ma-                       ational bayes, 2013. 2
+     chine intelligence, 44(5):2567–2581, 2020. 6                             [27]   Xiuyu Li, Yijiang Liu, Long Lian, Huanrui Yang, Zhen
+[13] Linwei Dong, Qingnan Fan, Yihong Guo, Zhonghao Wang,                            Dong, Daniel Kang, Shanghang Zhang, and Kurt Keutzer.
+     Qi Zhang, Jinwei Chen, Yawei Luo, and Changqing Zou.                            Q-diffusion: Quantizing diffusion models. In Proceedings
+     Tsd-sr: One-step diffusion with target score distillation for                   of the IEEE/CVF International Conference on Computer Vi-
+     real-world image super-resolution. In Proceedings of the                        sion, pages 17535–17545, 2023. 1
+
+
+
+
+                                                                       5083
+[28] Yanyu Li, Huan Wang, Qing Jin, Ju Hu, Pavlo Chemerys,                     [41] Jianyi Wang, Zongsheng Yue, Shangchen Zhou, Kelvin CK
+     Yun Fu, Yanzhi Wang, Sergey Tulyakov, and Jian Ren. Snap-                      Chan, and Chen Change Loy. Exploiting diffusion prior for
+     fusion: Text-to-image diffusion model on mobile devices                        real-world image super-resolution. International Journal of
+     within two seconds. Advances in Neural Information Pro-                        Computer Vision, pages 1–21, 2024. 6
+     cessing Systems, 36:20662–20678, 2023. 1, 3, 7                            [42] Xintao Wang, Liangbin Xie, Chao Dong, and Ying Shan.
+[29] Yawei Li, Kai Zhang, Jingyun Liang, Jiezhang Cao, Ce Liu,                      Real-esrgan: Training real-world blind super-resolution with
+     Rui Gong, Yulun Zhang, Hao Tang, Yun Liu, Denis Deman-                         pure synthetic data. In Proceedings of the IEEE/CVF inter-
+     dolx, et al. Lsdir: A large scale dataset for image restoration.               national conference on computer vision, pages 1905–1914,
+     In Proceedings of the IEEE/CVF Conference on Computer                          2021. 1, 2, 6
+     Vision and Pattern Recognition, pages 1775–1787, 2023. 6                  [43] Yufei Wang, Wenhan Yang, Xinyuan Chen, Yaohui Wang,
+[30] Jie Liang, Hui Zeng, and Lei Zhang. Details or artifacts:                      Lanqing Guo, Lap-Pui Chau, Ziwei Liu, Yu Qiao, Alex C
+     A locally discriminative learning approach to realistic im-                    Kot, and Bihan Wen. Sinsr: diffusion-based image super-
+     age super-resolution. In Proceedings of the IEEE/CVF Con-                      resolution in a single step. In Proceedings of the IEEE/CVF
+     ference on Computer Vision and Pattern Recognition, pages                      Conference on Computer Vision and Pattern Recognition,
+     5657–5666, 2022. 1, 6                                                          pages 25796–25805, 2024. 6
+[31] Xinqi Lin, Jingwen He, Ziyan Chen, Zhaoyang Lyu, Bo Dai,                  [44] Zhou Wang, Alan C Bovik, Hamid R Sheikh, and Eero P Si-
+     Fanghua Yu, Wanli Ouyang, Yu Qiao, and Chao Dong. Diff-                        moncelli. Image quality assessment: from error visibility to
+     bir: Towards blind image restoration with generative diffu-                    structural similarity. IEEE transactions on image processing,
+     sion prior. arXiv preprint arXiv:2308.15070, 2023. 2, 6                        13(4):600–612, 2004. 6
+[32] Ilya Loshchilov and Frank Hutter. Decoupled weight decay                  [45] Zhendong Wang, Yifan Jiang, Huangjie Zheng, Peihao
+     regularization. arXiv preprint arXiv:1711.05101, 2017. 5                       Wang, Pengcheng He, Zhangyang Wang, Weizhu Chen,
+[33] Xin Men, Mingyu Xu, Qingyu Zhang, Bingning Wang,                               Mingyuan Zhou, et al. Patch diffusion: Faster and more
+     Hongyu Lin, Yaojie Lu, Xianpei Han, and Weipeng Chen.                          data-efficient training of diffusion models. Advances in neu-
+     Shortgpt: Layers in large language models are more redun-                      ral information processing systems, 36:72137–72154, 2023.
+     dant than you expect. arXiv preprint arXiv:2403.03853,                         1
+     2024. 2, 7
+                                                                               [46] Pengxu Wei, Ziwei Xie, Hannan Lu, Zongyuan Zhan, Qixi-
+[34] Alexander Quinn Nichol and Prafulla Dhariwal. Improved
+                                                                                    ang Ye, Wangmeng Zuo, and Liang Lin. Component divide-
+     denoising diffusion probabilistic models. In International
+                                                                                    and-conquer for real-world image super-resolution. In Com-
+     conference on machine learning, pages 8162–8171. PMLR,
+                                                                                    puter Vision–ECCV 2020: 16th European Conference, Glas-
+     2021. 1
+                                                                                    gow, UK, August 23–28, 2020, Proceedings, Part VIII 16,
+[35] William Peebles and Saining Xie. Scalable diffusion models                     pages 101–117. Springer, 2020. 6
+     with transformers. In Proceedings of the IEEE/CVF inter-
+                                                                               [47] Haoning Wu, Zicheng Zhang, Weixia Zhang, Chaofeng
+     national conference on computer vision, pages 4195–4205,
+                                                                                    Chen, Liang Liao, Chunyi Li, Yixuan Gao, Annan Wang,
+     2023. 5
+                                                                                    Erli Zhang, Wenxiu Sun, et al. Q-align: Teaching lmms for
+[36] Robin Rombach, Andreas Blattmann, Dominik Lorenz,
+                                                                                    visual scoring via discrete text-defined levels. arXiv preprint
+     Patrick Esser, and Björn Ommer. High-resolution image
+                                                                                    arXiv:2312.17090, 2023. 6
+     synthesis with latent diffusion models. In Proceedings of
+     the IEEE/CVF conference on computer vision and pattern                    [48] Rongyuan Wu, Lingchen Sun, Zhiyuan Ma, and Lei Zhang.
+     recognition, pages 10684–10695, 2022. 2                                        One-step effective diffusion network for real-world image
+[37] Wenzhe Shi, Jose Caballero, Ferenc Huszár, Johannes Totz,                     super-resolution. arXiv preprint arXiv:2406.08177, 2024. 1,
+     Andrew P Aitken, Rob Bishop, Daniel Rueckert, and Zehan                        2, 6
+     Wang. Real-time single image and video super-resolution                   [49] Rongyuan Wu, Tao Yang, Lingchen Sun, Zhengqiang Zhang,
+     using an efficient sub-pixel convolutional neural network. In                  Shuai Li, and Lei Zhang. Seesr: Towards semantics-
+     Proceedings of the IEEE conference on computer vision and                      aware real-world image super-resolution. In Proceedings of
+     pattern recognition, pages 1874–1883, 2016. 2                                  the IEEE/CVF conference on computer vision and pattern
+[38] Yao Teng, Yue Wu, Han Shi, Xuefei Ning, Guohao Dai, Yu                         recognition, pages 25456–25467, 2024. 2, 6
+     Wang, Zhenguo Li, and Xihui Liu. Dim: Diffusion mamba                     [50] Sidi Yang, Tianhe Wu, Shuwei Shi, Shanshan Lao, Yuan
+     for efficient high-resolution image synthesis. arXiv preprint                  Gong, Mingdeng Cao, Jiahao Wang, and Yujiu Yang.
+     arXiv:2405.14224, 2024. 1                                                      Maniqa: Multi-dimension attention network for no-reference
+[39] Radu Timofte, Eirikur Agustsson, Luc Van Gool, Ming-                           image quality assessment. In Proceedings of the IEEE/CVF
+     Hsuan Yang, and Lei Zhang. Ntire 2017 challenge on single                      Conference on Computer Vision and Pattern Recognition,
+     image super-resolution: Methods and results. In Proceed-                       pages 1191–1200, 2022. 6
+     ings of the IEEE conference on computer vision and pattern                [51] Zongsheng Yue, Jianyi Wang, and Chen Change Loy.
+     recognition workshops, pages 114–125, 2017. 6                                  Resshift: Efficient diffusion model for image super-
+[40] Jianyi Wang, Kelvin CK Chan, and Chen Change Loy. Ex-                          resolution by residual shifting. Advances in Neural Infor-
+     ploring clip for assessing the look and feel of images. In Pro-                mation Processing Systems, 36, 2024. 6
+     ceedings of the AAAI conference on artificial intelligence,               [52] Kai Zhang, Jingyun Liang, Luc Van Gool, and Radu Timo-
+     pages 2555–2563, 2023. 2, 6                                                    fte. Designing a practical degradation model for deep blind
+
+
+
+
+                                                                        5084
+     image super-resolution. In Proceedings of the IEEE/CVF
+     International Conference on Computer Vision, pages 4791–
+     4800, 2021. 1, 2, 6
+[53] Lin Zhang, Lei Zhang, and Alan C Bovik. A feature-enriched
+     completely blind image quality evaluator. IEEE Transactions
+     on Image Processing, 24(8):2579–2591, 2015. 6
+[54] Richard Zhang, Phillip Isola, Alexei A Efros, Eli Shecht-
+     man, and Oliver Wang. The unreasonable effectiveness of
+     deep features as a perceptual metric. In Proceedings of the
+     IEEE conference on computer vision and pattern recogni-
+     tion, pages 586–595, 2018. 6
+
+
+
+
+                                                                   5085
+
