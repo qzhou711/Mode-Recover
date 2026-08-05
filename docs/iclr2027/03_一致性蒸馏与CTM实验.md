@@ -377,3 +377,30 @@ keep013的`91.0%/24/H=.929`，SR的小幅差异不足以在单seed下宣称提�
    BMD/Natural Replay式分布约束，恢复最后1种模式并校正模式频率。
 
 关键产物：`logs/avoiding/keep013_step_distillation/`。
+
+## 16. Endpoint保模态2×2消融（2026-08-04）
+
+### 16.1 目的与协议
+
+针对Endpoint-250正式结果`91.9%/23/H=.807`相对16步keep013少1种模式且熵下降的问题，固定
+3x72架构和Endpoint paired fidelity，分别加入同状态多噪声终点关系约束与短轨迹分布约束。辅助
+noise均在当前state下在线查询Teacher，不使用原始示范、专家动作或24-mode标签。`K=4`，每batch
+32个state group，`lambda_rel=lambda_traj=0.1`，轨迹时刻从0.25/0.5/0.75中随机选择。
+
+### 16.2 完整Standard-120结果
+
+| 方法 | e100 SR/Cov/H | e250 SR/Cov/H | e500 SR/Cov/H |
+|---|---|---|---|
+| Endpoint | 94.2% / 15 / .689 | **92.5% / 21 / .807** | 90.0% / 19 / .762 |
+| ＋Relation | 88.3% / 14 / .691 | 90.0% / 21 / .813 | 90.8% / 20 / .809 |
+| ＋Trajectory | 89.2% / 14 / .694 | **88.3% / 22 / .797** | **91.7% / 20 / .821** |
+| ＋Both | 90.0% / 14 / .713 | 88.3% / 20 / .802 | 89.2% / 20 / .802 |
+
+没有方案同时达到`SR>=90%`和24/24，因此不补多seed Standard-480。Relation未稳定扩大支持集；
+Trajectory在e250将覆盖提高到22但牺牲4.2个百分点SR，继续训练后SR恢复而覆盖回落；Combined没有
+叠加收益。当前证据指向短轨迹监督能够触及额外路径basin，但固定权重无法同时保持其闭环执行。
+下一步只对Trajectory验证更低权重或延迟开启的curriculum，不继续训练Combined，也不以增加普通
+epoch替代机制验证。
+
+产物：`logs/avoiding/endpoint_mode_preservation_2x2/`；训练器新增参数位于
+`train_deployed_flow_step_distillation.py`。

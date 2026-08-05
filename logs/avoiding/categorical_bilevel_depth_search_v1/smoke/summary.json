@@ -1,0 +1,148 @@
+{
+  "experiment": "categorical discrete bilevel depth search",
+  "seed": 42,
+  "rounds": 2,
+  "inner_epochs": 1,
+  "initial_probabilities": [
+    0.25,
+    0.25,
+    0.25,
+    0.25
+  ],
+  "final_logits": [
+    -0.11162052303552628,
+    0.29958873987197876,
+    -0.1115640178322792,
+    -0.25058573484420776
+  ],
+  "final_delete_probabilities": [
+    0.15226398408412933,
+    0.5996302962303162,
+    0.1522926688194275,
+    0.09581300616264343
+  ],
+  "selected_deleted_layer": 1,
+  "selected_layers": [
+    0,
+    2,
+    3
+  ],
+  "uses_shared_supernet": false,
+  "uses_straight_through": false,
+  "uses_mode_labels": false,
+  "uses_environment_rewards": false,
+  "uses_success_filter": false,
+  "uses_original_demonstrations": false,
+  "history": [
+    {
+      "round": 1,
+      "pair_deleted_layers": [
+        1,
+        3
+      ],
+      "pair_masks": [
+        [
+          0,
+          2,
+          3
+        ],
+        [
+          0,
+          1,
+          2
+        ]
+      ],
+      "metrics": [
+        {
+          "endpoint_cvar20": 0.02103094384074211,
+          "trajectory_paired": 0.006844143383204937,
+          "coverage": 4.282945156097412,
+          "precision": 4.322214126586914
+        },
+        {
+          "endpoint_cvar20": 0.04103375971317291,
+          "trajectory_paired": 0.04142199456691742,
+          "coverage": 8.651447296142578,
+          "precision": 7.752490997314453
+        }
+      ],
+      "winner_deleted_layer": 1,
+      "winner_mask": [
+        0,
+        2,
+        3
+      ],
+      "preference_loss": 0.6931471824645996,
+      "temperature": 1.5,
+      "epsilon": 0.25,
+      "entropy_weight": 0.0,
+      "logits": [
+        0.0,
+        0.1499999761581421,
+        0.0,
+        -0.1499999761581421
+      ],
+      "probabilities": [
+        0.24937604367733002,
+        0.27560314536094666,
+        0.24937604367733002,
+        0.2256447672843933
+      ]
+    },
+    {
+      "round": 2,
+      "pair_deleted_layers": [
+        0,
+        1
+      ],
+      "pair_masks": [
+        [
+          1,
+          2,
+          3
+        ],
+        [
+          0,
+          2,
+          3
+        ]
+      ],
+      "metrics": [
+        {
+          "endpoint_cvar20": 2.631063938140869,
+          "trajectory_paired": 0.38405996561050415,
+          "coverage": 231.42333984375,
+          "precision": 306.4085388183594
+        },
+        {
+          "endpoint_cvar20": 0.2104421854019165,
+          "trajectory_paired": 0.027752075344324112,
+          "coverage": 22.85508918762207,
+          "precision": 23.444019317626953
+        }
+      ],
+      "winner_deleted_layer": 1,
+      "winner_mask": [
+        0,
+        2,
+        3
+      ],
+      "preference_loss": 0.62095707654953,
+      "temperature": 0.3,
+      "epsilon": 0.04999999999999999,
+      "entropy_weight": 0.01,
+      "logits": [
+        -0.11162052303552628,
+        0.29958873987197876,
+        -0.1115640178322792,
+        -0.25058573484420776
+      ],
+      "probabilities": [
+        0.15226398408412933,
+        0.5996302962303162,
+        0.1522926688194275,
+        0.09581300616264343
+      ]
+    }
+  ]
+}

@@ -1,0 +1,75 @@
+{
+  "experiment": "recoverability-guided hard Top-K depth search",
+  "objective": "cvar_traj_set",
+  "selected_layers": [
+    0,
+    1,
+    2
+  ],
+  "final_logits": [
+    0.00081084348494187,
+    0.0011892878683283925,
+    0.0036577791906893253,
+    -0.0007675436791032553
+  ],
+  "train_windows": 136078,
+  "heldout_windows": 15136,
+  "episode_disjoint_split": true,
+  "uses_mode_labels": false,
+  "uses_environment_rewards": false,
+  "uses_original_demonstrations": false,
+  "teacher": "FM-4x72-16",
+  "target": "FM-3x72-16",
+  "history": [
+    {
+      "epoch": 1,
+      "objective": "cvar_traj_set",
+      "velocity": 0.6521949172019958,
+      "inner_endpoint": 0.127558633685112,
+      "temperature": 2.0,
+      "logits": [
+        0.0020000000949949026,
+        0.001999999862164259,
+        0.001999999862164259,
+        -0.001999999862164259
+      ],
+      "probabilities": [
+        0.2502497434616089,
+        0.2502497434616089,
+        0.2502497434616089,
+        0.24925075471401215
+      ],
+      "gate_loss": 4.0,
+      "endpoint_mean": 0.43955469131469727,
+      "endpoint_cvar20": 0.690246045589447,
+      "trajectory": 0.1811772584915161,
+      "coverage": 146.72076416015625,
+      "precision": 173.0904541015625
+    },
+    {
+      "epoch": 2,
+      "objective": "cvar_traj_set",
+      "velocity": 1.080141305923462,
+      "inner_endpoint": 0.16974511742591858,
+      "temperature": 0.25,
+      "logits": [
+        0.00081084348494187,
+        0.0011892878683283925,
+        0.0036577791906893253,
+        -0.0007675436791032553
+      ],
+      "probabilities": [
+        0.24989677965641022,
+        0.24999137222766876,
+        0.25060921907424927,
+        0.24950265884399414
+      ],
+      "gate_loss": 4.0,
+      "endpoint_mean": 0.09120304137468338,
+      "endpoint_cvar20": 0.17355144023895264,
+      "trajectory": 0.04714621603488922,
+      "coverage": 34.696128845214844,
+      "precision": 36.47389602661133
+    }
+  ]
+}

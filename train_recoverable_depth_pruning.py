@@ -27,11 +27,15 @@ def main():
     p.add_argument("--learning-rate", type=float, default=3e-5)
     p.add_argument("--endpoint-weight", type=float, default=0.03)
     p.add_argument("--save-epochs", default="50,100,250,500")
+    p.add_argument("--all-rollouts", action="store_true",
+                   help="Do not filter teacher rollouts using environment success labels.")
+    p.add_argument("--holdout-residue", type=int, default=-1,
+                   help="Exclude episode_id %% 10 == residue from repair training.")
     p.add_argument("--seed", type=int, default=42)
     a = p.parse_args()
     layer_map = [int(x) for x in a.layer_map.split(",")]
-    if len(layer_map) != 3 or len(set(layer_map)) != 3 or min(layer_map) < 0 or max(layer_map) > 3:
-        p.error("--layer-map must contain three distinct values from 0,1,2,3")
+    if not 0 < len(layer_map) < 4 or len(set(layer_map)) != len(layer_map) or min(layer_map) < 0 or max(layer_map) > 3:
+        p.error("--layer-map must contain 1-3 distinct values from 0,1,2,3")
     if layer_map != sorted(layer_map):
         p.error("--layer-map must preserve teacher depth order")
     a.output_dir.mkdir(parents=True, exist_ok=True)
@@ -41,7 +45,12 @@ def main():
     data = torch.load(a.buffer, map_location="cpu")
     assert data["metadata"]["uses_original_demonstrations"] is False
     assert data["metadata"]["uses_expert_actions"] is False
-    keep = data["successes"].bool()[data["episode_ids"].long()]
+    episode_ids = data["episode_ids"].long()
+    keep = torch.ones(len(episode_ids), dtype=torch.bool)
+    if not a.all_rollouts:
+        keep &= data["successes"].bool()[episode_ids]
+    if a.holdout_residue >= 0:
+        keep &= (episode_ids % 10) != a.holdout_residue
     states = data["states"].float()[keep]
     noises = data["noises"].float()[keep]
     endpoints = data["teacher_endpoints"].float()[keep]
@@ -52,7 +61,7 @@ def main():
 
     teacher, _, meta = load_deployed_teacher(a.bundle_dir)
     assert (meta["teacher_layers"], meta["teacher_embed_dim"], meta["teacher_heads"], meta["teacher_steps"]) == (4, 72, 4, 16)
-    student = build_flow(3, 72, 4, "cuda", 16).train()
+    student = build_flow(len(layer_map), 72, 4, "cuda", 16).train()
     identity = torch.eye(72)
     load_diff = initialize_student(teacher, student, identity, layer_map)
     torch.save(student.state_dict(), a.output_dir / "initial_flow.pth")
@@ -114,9 +123,11 @@ def main():
 
     summary = {
         "experiment": "TinySR-inspired recoverability-guided exact depth subset",
-        "teacher_architecture": "FM-4x72-16", "student_architecture": "FM-3x72-16",
+        "teacher_architecture": "FM-4x72-16", "student_architecture": f"FM-{len(layer_map)}x72-16",
         "layer_map": layer_map, "exact_copy_max_diff": exact_copy_max_diff,
         "teacher_buffer_samples": len(states), "endpoint_weight": a.endpoint_weight,
+        "uses_environment_success_filter": not a.all_rollouts,
+        "holdout_residue_modulo_10": a.holdout_residue,
         "uses_original_demonstrations": False, "uses_expert_actions": False,
         "history": history,
     }

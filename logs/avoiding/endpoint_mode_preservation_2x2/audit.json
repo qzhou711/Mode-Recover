@@ -1,0 +1,13 @@
+{
+  "long_term_objective": "demo-free transferable architecture and step distillation for robot/WAM policies while preserving multimodality",
+  "short_term_bottleneck": "Endpoint-250 preserves 23/24 modes but shifts normalized entropy from 0.929 to 0.807",
+  "stage_targeted": "step distillation only; FM-3x72 architecture fixed",
+  "mechanism_hypothesis": "paired endpoint preserves individual targets, while same-state multi-noise and short-horizon geometry protect basin separation and path diversity",
+  "causal_design": "2x2 endpoint / endpoint+relation / endpoint+trajectory / endpoint+both; same teacher, initialization, buffer, seed, epochs and evaluator",
+  "data_access": "teacher rollout states and online teacher queries only; no demonstrations, expert actions or 24-mode training labels",
+  "identity_audit": "main endpoint uses native state-noise pairs; auxiliary fresh noises are queried online from Teacher under the same repeated state",
+  "screen": "Standard-120 with seed42 and episodes0-119; SR, successful-mode coverage, entropy and trajectories",
+  "go": "SR>=90%, coverage=24, entropy moves from 0.807 toward 0.929; confirm winner with multi-seed Standard-480",
+  "resource": "four V100, one factorial cell per GPU, tmux, checkpoints 100/250/500",
+  "interpretation": "relation gain supports endpoint-basin geometry mechanism; trajectory-only gain supports path mismatch; no gain falsifies these auxiliary proxies"
+}

@@ -6,7 +6,9 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 
-from agents.models.flow_matching.ctm import ctm_paths, freeze, pseudo_huber, update_ema
+from agents.models.flow_matching.ctm import (
+    centered_gram_loss, ctm_paths, freeze, pseudo_huber, update_ema,
+)
 from teacher_flow_deployment import build_flow
 
 
@@ -25,9 +27,25 @@ def main():
     p.add_argument("--max-batches", type=int, default=4)
     p.add_argument("--learning-rate", type=float, default=1e-4)
     p.add_argument("--dsm-weight", type=float, default=0.1)
+    p.add_argument("--relation-weight", type=float, default=0.0,
+                   help="Same-state multi-noise endpoint geometry weight.")
+    p.add_argument("--trajectory-weight", type=float, default=0.0,
+                   help="Same-state multi-noise short-horizon geometry weight.")
+    p.add_argument("--multi-noise", type=int, default=4)
+    p.add_argument("--aux-state-groups", type=int, default=32)
+    p.add_argument("--trajectory-times", type=str, default="0.25,0.5,0.75")
     p.add_argument("--save-epochs", type=str, default="100,250,500")
     p.add_argument("--seed", type=int, default=42)
     a = p.parse_args()
+    trajectory_times = tuple(float(value) for value in a.trajectory_times.split(",") if value)
+    if a.method != "endpoint" and (a.relation_weight > 0 or a.trajectory_weight > 0):
+        p.error("mode-preserving auxiliary losses are defined for --method endpoint")
+    if a.multi_noise < 2 and (a.relation_weight > 0 or a.trajectory_weight > 0):
+        p.error("auxiliary losses require --multi-noise >= 2")
+    if a.trajectory_weight > 0 and not trajectory_times:
+        p.error("--trajectory-times cannot be empty when trajectory loss is enabled")
+    if any(not 0.0 < value < 1.0 for value in trajectory_times):
+        p.error("trajectory times must lie strictly between zero and one")
     torch.manual_seed(a.seed); np.random.seed(a.seed)
     a.output_dir.mkdir(parents=True, exist_ok=True)
     payload = torch.load(a.buffer, map_location="cpu")
@@ -54,6 +72,7 @@ def main():
 
     for epoch in range(a.epochs):
         losses, primary_values, dsm_values = [], [], []
+        relation_values, trajectory_values = [], []
         for batch_index, (state, stored_noise) in enumerate(loader):
             if a.max_batches and batch_index >= a.max_batches:
                 break
@@ -67,7 +86,39 @@ def main():
                 prediction = student.boundary_transition(stored_noise, zero, one, state)
                 primary = pseudo_huber(prediction, teacher_endpoint, .01)
                 dsm = primary * 0.0
-                loss = primary
+                relation = primary * 0.0
+                trajectory = primary * 0.0
+                if a.relation_weight > 0 or a.trajectory_weight > 0:
+                    groups = min(a.aux_state_groups, len(state))
+                    shared_state = state[:groups].repeat_interleave(a.multi_noise, dim=0)
+                    auxiliary_noise = torch.randn(
+                        groups * a.multi_noise, *stored_noise.shape[1:],
+                        device=stored_noise.device, dtype=stored_noise.dtype,
+                    )
+                    auxiliary_zero = torch.zeros(len(auxiliary_noise), device="cuda")
+                    auxiliary_one = torch.ones_like(auxiliary_zero)
+                    if a.relation_weight > 0:
+                        student_aux_endpoint = student.boundary_transition(
+                            auxiliary_noise, auxiliary_zero, auxiliary_one, shared_state)
+                        with torch.no_grad():
+                            teacher_aux_endpoint = teacher.integrate(
+                                auxiliary_noise, shared_state, steps=a.teacher_steps)
+                        relation = centered_gram_loss(
+                            student_aux_endpoint, teacher_aux_endpoint, a.multi_noise)
+                    if a.trajectory_weight > 0:
+                        horizon = trajectory_times[int(torch.randint(len(trajectory_times), ()).item())]
+                        stop = torch.full_like(auxiliary_zero, horizon)
+                        student_waypoint = student.boundary_transition(
+                            auxiliary_noise, auxiliary_zero, stop, shared_state)
+                        with torch.no_grad():
+                            teacher_waypoint = teacher.integrate(
+                                auxiliary_noise, shared_state, start_time=0.0,
+                                end_time=horizon,
+                                steps=max(1, round(a.teacher_steps * horizon)),
+                            )
+                        trajectory = centered_gram_loss(
+                            student_waypoint, teacher_waypoint, a.multi_noise)
+                loss = primary + a.relation_weight * relation + a.trajectory_weight * trajectory
             else:
                 fresh_noise = torch.randn_like(teacher_endpoint)
                 ti = int(torch.randint(0, 15, ()).item())
@@ -80,17 +131,23 @@ def main():
                 denoised = student.boundary_transition(x_t, t, torch.ones_like(t), state)
                 dsm = pseudo_huber(denoised, teacher_endpoint, .01)
                 loss = primary + a.dsm_weight * dsm
+                relation = primary * 0.0
+                trajectory = primary * 0.0
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(student.get_params(), 1.0)
             optimizer.step(); update_ema(target, student, .995)
             losses.append(float(loss.detach())); primary_values.append(float(primary.detach()))
             dsm_values.append(float(dsm.detach()))
+            relation_values.append(float(relation.detach()))
+            trajectory_values.append(float(trajectory.detach()))
         scheduler.step()
         score = float(np.mean(losses))
         record = {"epoch": epoch + 1, "selection_loss": score,
                   "primary_loss": float(np.mean(primary_values)),
-                  "dsm_loss": float(np.mean(dsm_values))}
+                  "dsm_loss": float(np.mean(dsm_values)),
+                  "relation_loss": float(np.mean(relation_values)),
+                  "trajectory_loss": float(np.mean(trajectory_values))}
         history.append(record)
         if score < best:
             best, best_epoch = score, epoch + 1
@@ -109,6 +166,10 @@ def main():
         "initialization": "teacher checkpoint", "epochs": a.epochs,
         "best_epoch": best_epoch, "best_selection_loss": best,
         "buffer": str(a.buffer), "teacher_endpoint_source": "online keep013 query",
+        "relation_weight": a.relation_weight, "trajectory_weight": a.trajectory_weight,
+        "multi_noise": a.multi_noise, "aux_state_groups": a.aux_state_groups,
+        "trajectory_times": trajectory_times,
+        "auxiliary_protocol": "same state, fresh noises, online self-consistent teacher queries",
         "uses_original_demonstrations": False, "uses_expert_actions": False,
         "history": history,
     }

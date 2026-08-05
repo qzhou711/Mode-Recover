@@ -1,0 +1,39 @@
+{
+  "protocol": "label-free teacher-relative recoverability proxy audit v1",
+  "mask": "keep023",
+  "stage": "epoch0",
+  "student_checkpoint": "logs/avoiding/tinysr_depth_recoverability/keep023/model/initial_flow.pth",
+  "buffer": "logs/avoiding/keep013_width_compression/teacher_buffer_2400/transfer_buffer.pt",
+  "buffer_metadata": {
+    "source": "repair_checkpoint_plus_environment",
+    "source_model": "logs/avoiding/tinysr_depth_recoverability/selected_model",
+    "uses_original_demonstrations": false,
+    "uses_expert_actions": false,
+    "base_buffers": [],
+    "shards": [
+      "logs/avoiding/keep013_width_compression/teacher_buffer_2400/shards/resume_13000_13299/transfer_buffer.pt",
+      "logs/avoiding/keep013_width_compression/teacher_buffer_2400/shards/resume_13300_13599/transfer_buffer.pt",
+      "logs/avoiding/keep013_width_compression/teacher_buffer_2400/shards/resume_13600_13899/transfer_buffer.pt",
+      "logs/avoiding/keep013_width_compression/teacher_buffer_2400/shards/resume_13900_14199/transfer_buffer.pt",
+      "logs/avoiding/keep013_width_compression/teacher_buffer_2400/shards/resume_14200_14499/transfer_buffer.pt",
+      "logs/avoiding/keep013_width_compression/teacher_buffer_2400/shards/resume_14500_14799/transfer_buffer.pt",
+      "logs/avoiding/keep013_width_compression/teacher_buffer_2400/shards/resume_14800_15099/transfer_buffer.pt",
+      "logs/avoiding/keep013_width_compression/teacher_buffer_2400/shards/resume_15100_15399/transfer_buffer.pt"
+    ]
+  },
+  "uses_mode_labels": false,
+  "uses_environment_rewards": false,
+  "uses_original_demonstrations": false,
+  "sample_count": 512,
+  "group_count": 48,
+  "samples_per_state": 4,
+  "endpoint_mse_mean": 0.3307718336582184,
+  "endpoint_mse_median": 0.14668995141983032,
+  "endpoint_mse_cvar20": 1.0908722877502441,
+  "velocity_mse_mean": 0.7062743306159973,
+  "velocity_mse_cvar20": 2.0918192863464355,
+  "multi_noise_trajectory_gram_mse": 0.08669663965702057,
+  "multi_noise_trajectory_paired_mse": 0.15752041339874268,
+  "teacher_to_student_set_coverage": 470.27447509765625,
+  "student_to_teacher_set_precision": 581.6993408203125
+}

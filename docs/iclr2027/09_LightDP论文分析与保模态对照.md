@@ -107,3 +107,19 @@ smoke test的截断SVD分数为：
 - 架构对照通过后，给LightDP-style模型接与keep013完全相同的Endpoint步数蒸馏，并比较最终
   SR、coverage、per-mode SR与latency，避免把架构选择和步数目标混为一个变量。
 
+## 8. SVD先验、等概率门控与优化机制修正（2026-08-04）
+
+原LightDP-style对照使用SVD重构误差初始化门控，其作用只是提供较稳定的静态重要性先验，并非
+双层架构优化的必要条件。后续Hard Top-3实验已经将四个logit全部初始化为0，即四层先验概率相同，
+但mean、CVaR、短轨迹及集合距离四种目标仍全部收敛到keep012。因此不能再把错误选择归因于SVD；
+真正的问题是共享超网共适应、straight-through的soft/hard梯度偏差，以及没有对短Repair过程求
+超梯度。
+
+接下来采用等概率的**离散候选分布**而不是等概率的独立soft gate：直接学习“删除哪一层”的
+categorical概率，每次执行真实硬mask和独立短Repair，通过held-out相对奖励更新概率。5/10/25/50
+epoch校准已经证明无标签代理在所有预算均正确排序keep013、keep012、keep023、keep123，因此5
+epochs可作为当前离散优化器的最低可用inner预算。温度退火和低熵约束只在获得可靠相对证据后启用，
+避免过早、自信地锁定错误结构。
+
+后续已将该删除一层特例推广为任意固定K的BiReTopK，并完成Top-3四seed正验证与Top-2探索性
+搜索。完整方法和证据边界统一见`11_BiReTopK双层可恢复性Top-K层选择.md`。
